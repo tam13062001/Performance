@@ -46,6 +46,30 @@ export interface SyncResult {
   failedRows: number;
   errorMessage?: string;
   sampleErrors?: string[];
+  mergedDuplicateGroups?: number; // số nhóm dòng bị trùng key đã được cộng dồn lại
+}
+
+// Một dòng đã gộp: giữ nguyên phần dimension, cộng dồn phần metric.
+interface AggregatedRow {
+  channelName: string;
+  campaignName: string;
+  reportDate: string;
+  phase: string;
+  buyingType: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  region: string | null;
+  asset: string | null;
+  reach: number;
+  impressions: number;
+  engagements: number;
+  views: number;
+  clicks: number;
+  linkClicks: number;
+  landingPageViews: number;
+  leads: number;
+  spend: number;
+  rowsMerged: number;
 }
 
 export async function syncMasterDataForProject(
@@ -83,53 +107,99 @@ export async function syncMasterDataForProject(
     const rawRows = await getSheetValues(spreadsheetId, tabName);
     const dataRows = rawRows.slice(1).filter((row) => row.length > 0 && row[COL.campaignName]);
 
-    let successRows = 0;
     let failedRows = 0;
     const sampleErrors: string[] = [];
 
+    // ---------- BƯỚC 1: gộp (SUM) các dòng trùng conflict key ----------
+    // Key giống hệt key trong ON CONFLICT bên dưới. Dòng nào share key thì
+    // cộng dồn metric lại thành 1 dòng duy nhất, KHÔNG để DB tự bỏ dòng thừa.
+    const grouped = new Map<string, AggregatedRow>();
+    for (const row of dataRows) {
+      const channelName = String(row[COL.channel] ?? '').trim();
+      const campaignName = String(row[COL.campaignName] ?? '').trim();
+      const reportDate = parseSheetDate(row[COL.reportDate]);
+
+      if (!channelName || !campaignName || !reportDate) {
+        failedRows++;
+        if (sampleErrors.length < 5) {
+          sampleErrors.push(`Thiếu dữ liệu bắt buộc (channel="${channelName}", campaign="${campaignName}", date="${row[COL.reportDate]}")`);
+        }
+        continue;
+      }
+
+      const phase = String(row[COL.phase] ?? 'other').trim().toLowerCase();
+      const buyingType = row[COL.buyingType] ? String(row[COL.buyingType]).trim() : null;
+      const startDate = parseSheetDate(row[COL.startDate]);
+      const endDate = parseSheetDate(row[COL.endDate]);
+      const region = COL.region !== null && row[COL.region] ? String(row[COL.region]).trim() : null;
+      const asset = COL.asset !== null && row[COL.asset] ? String(row[COL.asset]).trim() : null;
+
+      // PHẢI khớp đúng với conflictColumns của câu INSERT bên dưới
+      const key = [channelName.toLowerCase(), campaignName, reportDate, buyingType ?? '', asset ?? ''].join('::');
+
+      const existing = grouped.get(key);
+      const reach = parseSheetNumber(row[COL.reach]);
+      const impressions = parseSheetNumber(row[COL.impressions]);
+      const engagements = parseSheetNumber(row[COL.engagements]);
+      const views = parseSheetNumber(row[COL.views]);
+      const clicks = parseSheetNumber(row[COL.clicks]);
+      const linkClicks = parseSheetNumber(row[COL.linkClicks]);
+      const landingPageViews = parseSheetNumber(row[COL.landingPageViews]);
+      const leads = parseSheetNumber(row[COL.leads]);
+      const spend = parseSheetNumber(row[COL.spend]);
+
+      if (existing) {
+        existing.reach += reach;
+        existing.impressions += impressions;
+        existing.engagements += engagements;
+        existing.views += views;
+        existing.clicks += clicks;
+        existing.linkClicks += linkClicks;
+        existing.landingPageViews += landingPageViews;
+        existing.leads += leads;
+        existing.spend += spend;
+        existing.rowsMerged += 1;
+      } else {
+        grouped.set(key, {
+          channelName, campaignName, reportDate,
+          phase: ['awareness', 'consideration', 'conversion'].includes(phase) ? phase : 'other',
+          buyingType, startDate, endDate, region, asset,
+          reach, impressions, engagements, views, clicks, linkClicks, landingPageViews, leads, spend,
+          rowsMerged: 1,
+        });
+      }
+    }
+
+    const mergedDuplicateGroups = [...grouped.values()].filter((g) => g.rowsMerged > 1).length;
+    if (mergedDuplicateGroups > 0) {
+      console.warn(
+        `[syncMasterData] ${projectCode}: ${mergedDuplicateGroups} nhóm dòng bị trùng conflict key đã được cộng dồn ` +
+        `(tổng ${[...grouped.values()].reduce((s, g) => s + g.rowsMerged - 1, 0)} dòng thừa). ` +
+        `Kiểm tra sheet MASTER_DATA xem có chiều dữ liệu nào (audience/placement...) đang bị rollup mất không.`
+      );
+    }
+
+    // ---------- BƯỚC 2: upsert từng dòng đã gộp, DO UPDATE để idempotent ----------
+    let successRows = 0;
     const channelIdCache = new Map<string, number>();
     const campaignIdCache = new Map<string, number>();
 
     await client.query('BEGIN');
-    // Không xóa data cũ - dùng ON CONFLICT DO NOTHING: dòng mới thì thêm,
-    // dòng trùng key (project+channel+campaign+ngày+buying_type+asset) thì tự bỏ qua.
 
-    for (const row of dataRows) {
+    for (const g of grouped.values()) {
       await client.query('SAVEPOINT row_sp');
       try {
-        const channelName = String(row[COL.channel] ?? '').trim();
-        const campaignName = String(row[COL.campaignName] ?? '').trim();
-        const reportDate = parseSheetDate(row[COL.reportDate]);
+        const channelId = channelIdCache.get(g.channelName.toLowerCase())
+          ?? await resolveChannelId(client, g.channelName);
+        channelIdCache.set(g.channelName.toLowerCase(), channelId);
 
-        if (!channelName || !campaignName || !reportDate) {
-          await client.query('ROLLBACK TO SAVEPOINT row_sp');
-          failedRows++;
-          if (sampleErrors.length < 5) {
-            sampleErrors.push(`Thiếu dữ liệu bắt buộc (channel="${channelName}", campaign="${campaignName}", date="${row[COL.reportDate]}")`);
-          }
-          continue;
-        }
-
-        const channelId = channelIdCache.get(channelName.toLowerCase())
-          ?? await resolveChannelId(client, channelName);
-        channelIdCache.set(channelName.toLowerCase(), channelId);
-
-        const phase = String(row[COL.phase] ?? 'other').trim().toLowerCase();
-        const buyingType = row[COL.buyingType] ? String(row[COL.buyingType]).trim() : null;
-        const startDate = parseSheetDate(row[COL.startDate]);
-        const endDate = parseSheetDate(row[COL.endDate]);
-
-        const campaignCacheKey = `${channelId}::${campaignName}`;
+        const campaignCacheKey = `${channelId}::${g.campaignName}`;
         const campaignId = campaignIdCache.get(campaignCacheKey)
           ?? await resolveCampaignId(client, {
-            projectId, channelId, campaignName,
-            phase: ['awareness', 'consideration', 'conversion'].includes(phase) ? phase : 'other',
-            buyingType, startDate, endDate,
+            projectId, channelId, campaignName: g.campaignName,
+            phase: g.phase, buyingType: g.buyingType, startDate: g.startDate, endDate: g.endDate,
           });
         campaignIdCache.set(campaignCacheKey, campaignId);
-
-        const region = COL.region !== null && row[COL.region] ? String(row[COL.region]).trim() : null;
-        const asset = COL.asset !== null && row[COL.asset] ? String(row[COL.asset]).trim() : null;
 
         await client.query(
           `INSERT INTO ad_daily_metrics (
@@ -143,22 +213,29 @@ export async function syncMasterDataForProject(
             $15,$16,$17,$18,$19,$20,$21,$22,$23
           )
           ON CONFLICT (project_id, channel_id, campaign_name, report_date, COALESCE(buying_type, ''), COALESCE(asset, ''))
-          DO NOTHING`,
+          DO UPDATE SET
+            campaign_id = EXCLUDED.campaign_id,
+            import_batch_id = EXCLUDED.import_batch_id,
+            phase = EXCLUDED.phase,
+            start_date = EXCLUDED.start_date,
+            end_date = EXCLUDED.end_date,
+            region = EXCLUDED.region,
+            asset = EXCLUDED.asset,
+            reach = EXCLUDED.reach,
+            impressions = EXCLUDED.impressions,
+            engagements = EXCLUDED.engagements,
+            views = EXCLUDED.views,
+            clicks = EXCLUDED.clicks,
+            link_clicks = EXCLUDED.link_clicks,
+            landing_page_views = EXCLUDED.landing_page_views,
+            leads = EXCLUDED.leads,
+            spend = EXCLUDED.spend`,
           [
             projectId, campaignId, channelId, batchId,
-            projectCode,
-            ['awareness', 'consideration', 'conversion'].includes(phase) ? phase : 'other',
-            channelName, reportDate, campaignName, buyingType,
-            startDate, endDate, region, asset,
-            parseSheetNumber(row[COL.reach]),
-            parseSheetNumber(row[COL.impressions]),
-            parseSheetNumber(row[COL.engagements]),
-            parseSheetNumber(row[COL.views]),
-            parseSheetNumber(row[COL.clicks]),
-            parseSheetNumber(row[COL.linkClicks]),
-            parseSheetNumber(row[COL.landingPageViews]),
-            parseSheetNumber(row[COL.leads]),
-            parseSheetNumber(row[COL.spend]),
+            projectCode, g.phase, g.channelName, g.reportDate, g.campaignName, g.buyingType,
+            g.startDate, g.endDate, g.region, g.asset,
+            g.reach, g.impressions, g.engagements, g.views, g.clicks, g.linkClicks,
+            g.landingPageViews, g.leads, g.spend,
           ]
         );
         await client.query('RELEASE SAVEPOINT row_sp');
@@ -178,7 +255,11 @@ export async function syncMasterDataForProject(
       [dataRows.length, successRows, failedRows, batchId]
     );
 
-    return { projectCode, table: 'ad_daily_metrics', totalRows: dataRows.length, successRows, failedRows, sampleErrors };
+    return {
+      projectCode, table: 'ad_daily_metrics',
+      totalRows: dataRows.length, successRows, failedRows, sampleErrors,
+      mergedDuplicateGroups,
+    };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     const message = (err as Error).message;

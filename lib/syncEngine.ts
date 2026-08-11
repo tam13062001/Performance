@@ -70,8 +70,9 @@ export async function syncRawSheet(
         const cols = Object.keys(values);
         const placeholders = cols.map((_, i) => `$${i + 1}`);
         const sql = `INSERT INTO ${config.table} (${cols.join(', ')})
-                     VALUES (${placeholders.join(', ')})
-                     ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
+                    VALUES (${placeholders.join(', ')})
+                    ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
+
         await client.query(sql, cols.map((c) => values[c]));
         await client.query('RELEASE SAVEPOINT row_sp');
         successRows++;
