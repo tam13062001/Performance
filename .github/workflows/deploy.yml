@@ -19,7 +19,8 @@ jobs:
           node-version: '20' # Bạn có thể đổi phiên bản Node cho phù hợp với máy của bạn
 
       - name: 📦 Install Dependencies
-        run: npm install
+        # Thêm cờ --include=optional để bắt buộc tải các file lõi của hệ điều hành
+        run: npm install --include=optional
 
       - name: 🏗️ Build Project
         run: npm run build
