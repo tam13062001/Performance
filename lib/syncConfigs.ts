@@ -315,6 +315,277 @@ function buildUnitCostPlanConfig(projectCode: string, periodType: 'YTD' | 'MTD')
 }
 
 /* =========================================================
+ * REPORT (YTD + MTD) - raw metrics gộp theo region/phase/channel/buying_type/asset
+ * ---------------------------------------------------------
+ * Cột thực tế đã verify từ file gốc:
+ *
+ * YTD_REPORT (Tanakan, 17 cột):
+ *   0 project, 1 region, 2 phase, 3 channel, 4 buying_type, 5 asset,
+ *   6 start_date, 7 end_date, 8 Reach, 9 Impressions, 10 Engagements,
+ *   11 Views, 12 Clicks, 13 Link Clicks, 14 Landing Page Views, 15 Leads, 16 Spend
+ *
+ * MTD_REPORT (Tanakan, 20 cột):
+ *   0 period_month, 1 period_start_date, 2 period_end_date, 3 project,
+ *   4 region, 5 phase, 6 channel, 7 buying_type, 8 asset,
+ *   9 start_date, 10 end_date, 11 Reach, 12 Impressions, 13 Engagements,
+ *   14 Views, 15 Clicks, 16 Link Clicks, 17 Landing Page Views, 18 Leads, 19 Spend
+ *
+ * YTD_REPORT (MMU, 15 cột — không region, không asset):
+ *   0 project, 1 phase, 2 channel, 3 buying_type, 4 start_date, 5 end_date,
+ *   6 Reach, 7 Impressions, 8 Engagements, 9 Views, 10 Clicks, 11 Link Clicks,
+ *   12 Landing Page Views, 13 Leads, 14 Spend
+ *
+ * MMU không có sheet MTD_REPORT => tab không tồn tại => KHÔNG add config (giống MTD_UNIT_COST_PLAN/MTD_DELIVERY_STATUS).
+ * ========================================================= */
+function buildReportConfig(projectCode: string, periodType: 'YTD' | 'MTD'): RowSyncConfig {
+  const isTanakan = projectCode === 'TANAKAN';
+  const tabName = periodType === 'YTD' ? 'YTD_REPORT' : 'MTD_REPORT';
+
+  return {
+    table: 'ad_raw_report',
+    tabName,
+    conflictColumns: `project_id, period_month, region, phase, channel, buying_type, asset, start_date, end_date`,
+    parseRow: (row) => {
+      if (periodType === 'MTD') {
+        // chỉ Tanakan có nhánh này
+        const month = s(row[0]);
+        const channel = s(row[6]);
+        const buyingType = s(row[7]);
+        if (!month || !channel || !buyingType) return null;
+        const phaseRaw = s(row[5])?.toLowerCase() ?? 'other';
+        return {
+          period_month: month,
+          period_start_date: parseSheetDate(row[1]),
+          period_end_date: parseSheetDate(row[2]),
+          region: s(row[4]) ?? '',
+          phase: ['awareness', 'consideration', 'conversion'].includes(phaseRaw) ? phaseRaw : 'other',
+          channel,
+          buying_type: buyingType,
+          asset: s(row[8]) ?? '',
+          start_date: parseSheetDate(row[9]),
+          end_date: parseSheetDate(row[10]),
+          reach: n(row[11]),
+          impressions: n(row[12]),
+          engagements: n(row[13]),
+          views: n(row[14]),
+          clicks: n(row[15]),
+          link_clicks: n(row[16]),
+          landing_page_views: n(row[17]),
+          leads: n(row[18]),
+          spend: n(row[19]),
+        };
+      }
+
+      // periodType === 'YTD' — viết tường minh theo từng project để tránh nhầm offset
+      if (isTanakan) {
+        const channelT = s(row[3]);
+        const buyingTypeT = s(row[4]);
+        if (!channelT || !buyingTypeT) return null;
+        const phaseRaw = s(row[2])?.toLowerCase() ?? 'other';
+        return {
+          period_month: 'YTD',
+          region: s(row[1]) ?? '',
+          phase: ['awareness', 'consideration', 'conversion'].includes(phaseRaw) ? phaseRaw : 'other',
+          channel: channelT,
+          buying_type: buyingTypeT,
+          asset: s(row[5]) ?? '',
+          start_date: parseSheetDate(row[6]),
+          end_date: parseSheetDate(row[7]),
+          reach: n(row[8]),
+          impressions: n(row[9]),
+          engagements: n(row[10]),
+          views: n(row[11]),
+          clicks: n(row[12]),
+          link_clicks: n(row[13]),
+          landing_page_views: n(row[14]),
+          leads: n(row[15]),
+          spend: n(row[16]),
+        };
+      }
+
+      // MMU YTD_REPORT
+      const channelM = s(row[2]);
+      const buyingTypeM = s(row[3]);
+      if (!channelM || !buyingTypeM) return null;
+      const phaseRawM = s(row[1])?.toLowerCase() ?? 'other';
+      return {
+        period_month: 'YTD',
+        region: '',
+        phase: ['awareness', 'consideration', 'conversion'].includes(phaseRawM) ? phaseRawM : 'other',
+        channel: channelM,
+        buying_type: buyingTypeM,
+        asset: '',
+        start_date: parseSheetDate(row[4]),
+        end_date: parseSheetDate(row[5]),
+        reach: n(row[6]),
+        impressions: n(row[7]),
+        engagements: n(row[8]),
+        views: n(row[9]),
+        clicks: n(row[10]),
+        link_clicks: n(row[11]),
+        landing_page_views: n(row[12]),
+        leads: n(row[13]),
+        spend: n(row[14]),
+      };
+    },
+  };
+}
+
+/* =========================================================
+ * DATA (YTD + MTD) - KHÁC ad_raw_report:
+ *   + end_date = ngày kết thúc PLAN (cố định), không phải cutoff báo cáo.
+ *   + MMU: sheet này gộp sẵn planned_quantity/actual_delivery/delivery_status...
+ *     (Tanakan không có các cột này -> để NULL).
+ * ---------------------------------------------------------
+ * Cột thực tế đã verify từ file gốc:
+ *
+ * YTD_DATA (Tanakan, 17 cột — giống hệt layout YTD_REPORT):
+ *   0 project, 1 region, 2 phase, 3 channel, 4 buying_type, 5 asset,
+ *   6 start_date, 7 end_date, 8 Reach, 9 Impressions, 10 Engagements,
+ *   11 Views, 12 Clicks, 13 Link Clicks, 14 Landing Page Views, 15 Leads, 16 Spend
+ *
+ * MTD_DATA (Tanakan, 20 cột — giống hệt layout MTD_REPORT):
+ *   0 period_month, 1 period_start_date, 2 period_end_date, 3 project,
+ *   4 region, 5 phase, 6 channel, 7 buying_type, 8 asset,
+ *   9 start_date, 10 end_date, 11 Reach, 12 Impressions, 13 Engagements,
+ *   14 Views, 15 Clicks, 16 Link Clicks, 17 Landing Page Views, 18 Leads, 19 Spend
+ *
+ * YTD_DATA (MMU, 25 cột — không region/asset, có thêm plan+status):
+ *   0 project, 1 phase, 2 channel, 3 buying_type, 4 start_date, 5 end_date,
+ *   6 Reach, 7 Impressions, 8 Engagements, 9 Views, 10 Clicks, 11 Link Clicks,
+ *   12 Landing Page Views, 13 Leads, 14 Spend, 15 planned_quantity,
+ *   16 actual_delivery, 17 time_passed_pct, 18 delivery_pct, 19 pacing_gap,
+ *   20 sold_value, 21 cost_optimized, 22 cost_optimized_pct,
+ *   23 delivery_status, 24 cost_status
+ *
+ * MMU không có sheet MTD_DATA => KHÔNG add config (giống MTD_REPORT).
+ * ========================================================= */
+function buildDataConfig(projectCode: string, periodType: 'YTD' | 'MTD'): RowSyncConfig {
+  const isTanakan = projectCode === 'TANAKAN';
+  const tabName = periodType === 'YTD' ? 'YTD_DATA' : 'MTD_DATA';
+
+  return {
+    table: 'ad_raw_data',
+    tabName,
+    conflictColumns: `project_id, period_month, region, phase, channel, buying_type, asset, start_date, end_date`,
+    parseRow: (row) => {
+      if (periodType === 'MTD') {
+        // chỉ Tanakan có nhánh này, layout giống hệt MTD_REPORT
+        const month = s(row[0]);
+        const channel = s(row[6]);
+        const buyingType = s(row[7]);
+        if (!month || !channel || !buyingType) return null;
+        const phaseRaw = s(row[5])?.toLowerCase() ?? 'other';
+        return {
+          period_month: month,
+          period_start_date: parseSheetDate(row[1]),
+          period_end_date: parseSheetDate(row[2]),
+          region: s(row[4]) ?? '',
+          phase: ['awareness', 'consideration', 'conversion'].includes(phaseRaw) ? phaseRaw : 'other',
+          channel,
+          buying_type: buyingType,
+          asset: s(row[8]) ?? '',
+          start_date: parseSheetDate(row[9]),
+          end_date: parseSheetDate(row[10]),
+          reach: n(row[11]),
+          impressions: n(row[12]),
+          engagements: n(row[13]),
+          views: n(row[14]),
+          clicks: n(row[15]),
+          link_clicks: n(row[16]),
+          landing_page_views: n(row[17]),
+          leads: n(row[18]),
+          spend: n(row[19]),
+          // Tanakan MTD_DATA không có cột plan/status
+          planned_quantity: null,
+          actual_delivery: null,
+          time_passed_pct: null,
+          delivery_pct: null,
+          pacing_gap: null,
+          sold_value: null,
+          cost_optimized: null,
+          cost_optimized_pct: null,
+          delivery_status: null,
+          cost_status: null,
+        };
+      }
+
+      // periodType === 'YTD'
+      if (isTanakan) {
+        const channelT = s(row[3]);
+        const buyingTypeT = s(row[4]);
+        if (!channelT || !buyingTypeT) return null;
+        const phaseRaw = s(row[2])?.toLowerCase() ?? 'other';
+        return {
+          period_month: 'YTD',
+          region: s(row[1]) ?? '',
+          phase: ['awareness', 'consideration', 'conversion'].includes(phaseRaw) ? phaseRaw : 'other',
+          channel: channelT,
+          buying_type: buyingTypeT,
+          asset: s(row[5]) ?? '',
+          start_date: parseSheetDate(row[6]),
+          end_date: parseSheetDate(row[7]),
+          reach: n(row[8]),
+          impressions: n(row[9]),
+          engagements: n(row[10]),
+          views: n(row[11]),
+          clicks: n(row[12]),
+          link_clicks: n(row[13]),
+          landing_page_views: n(row[14]),
+          leads: n(row[15]),
+          spend: n(row[16]),
+          planned_quantity: null,
+          actual_delivery: null,
+          time_passed_pct: null,
+          delivery_pct: null,
+          pacing_gap: null,
+          sold_value: null,
+          cost_optimized: null,
+          cost_optimized_pct: null,
+          delivery_status: null,
+          cost_status: null,
+        };
+      }
+
+      // MMU YTD_DATA - có sẵn plan/status gộp trong cùng dòng
+      const channelM = s(row[2]);
+      const buyingTypeM = s(row[3]);
+      if (!channelM || !buyingTypeM) return null;
+      const phaseRawM = s(row[1])?.toLowerCase() ?? 'other';
+      return {
+        period_month: 'YTD',
+        region: '',
+        phase: ['awareness', 'consideration', 'conversion'].includes(phaseRawM) ? phaseRawM : 'other',
+        channel: channelM,
+        buying_type: buyingTypeM,
+        asset: '',
+        start_date: parseSheetDate(row[4]),
+        end_date: parseSheetDate(row[5]),
+        reach: n(row[6]),
+        impressions: n(row[7]),
+        engagements: n(row[8]),
+        views: n(row[9]),
+        clicks: n(row[10]),
+        link_clicks: n(row[11]),
+        landing_page_views: n(row[12]),
+        leads: n(row[13]),
+        spend: n(row[14]),
+        planned_quantity: nOrNull(row[15]),
+        actual_delivery: nOrNull(row[16]),
+        time_passed_pct: nOrNull(row[17]),
+        delivery_pct: nOrNull(row[18]),
+        pacing_gap: nOrNull(row[19]),
+        sold_value: nOrNull(row[20]),
+        cost_optimized: nOrNull(row[21]),
+        cost_optimized_pct: nOrNull(row[22]),
+        delivery_status: s(row[23]),
+        cost_status: s(row[24]),
+      };
+    },
+  };
+}
+
+/* =========================================================
  * DELIVERY_STATUS (YTD + MTD)
  * ---------------------------------------------------------
  * Cột thực tế đã verify từ file gốc:
@@ -433,6 +704,8 @@ export function getAllRawConfigsForProject(projectCode: string): RowSyncConfig[]
     buildDateSelectionConfig(projectCode),
     buildUnitCostPlanConfig(projectCode, 'YTD'),
     buildDeliveryStatusConfig(projectCode, 'YTD'),
+    buildReportConfig(projectCode, 'YTD'),
+    buildDataConfig(projectCode, 'YTD'),
     FACEBOOK_CONFIG,
     TIKTOK_CONFIG,
     buildSemYoutubeConfig('ad_raw_sem_data', 'SEM_DATA', projectCode),
@@ -449,6 +722,8 @@ export function getAllRawConfigsForProject(projectCode: string): RowSyncConfig[]
     configs.push(
       buildUnitCostPlanConfig(projectCode, 'MTD'),
       buildDeliveryStatusConfig(projectCode, 'MTD'),
+      buildReportConfig(projectCode, 'MTD'),
+      buildDataConfig(projectCode, 'MTD'),
     );
   }
 

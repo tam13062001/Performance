@@ -23,8 +23,9 @@ export type Project = {
 
 export type NewProject = Omit<Project, "id" | "createdAt" | "theme">
 
-const STORAGE_KEY = "rocket.projects.v9"
-const ACTIVE_KEY = "rocket.activeProject.v9"
+// Đổi KEY để force reset lại local storage, nhận project Tanakan mới
+const STORAGE_KEY = "rocket.projects.v10" 
+const ACTIVE_KEY = "rocket.activeProject.v10"
 
 const DEFAULT_PROJECTS: Project[] = [
   {
@@ -45,6 +46,27 @@ const DEFAULT_PROJECTS: Project[] = [
       accent: "#D4AF37",
       clientName: "British University Vietnam",
       reportTitle: "BUV Media Performance",
+      footerText: "Prepared by Rocket Digital",
+    },
+  },
+  {
+    id: "tanakan-campaign", // ID map với UI
+    name: "Tanakan Campaign",
+    client: "Tanakan",
+    description: "Multi-channel Campaign",
+    startDate: "2026-01-01",
+    endDate: "2026-12-31",
+    status: "Active",
+    billingModel: "transparent",
+    createdAt: Date.now(),
+    theme: {
+      ...DEFAULT_THEME,
+      preset: "client-branded",
+      primary: "#0A7DC2", // Bạn có thể thay đổi mã màu theo branding của Tanakan
+      secondary: "#F5A623",
+      accent: "#7FC5E8",
+      clientName: "Tanakan",
+      reportTitle: "Tanakan Performance Dashboard",
       footerText: "Prepared by Rocket Digital",
     },
   },
