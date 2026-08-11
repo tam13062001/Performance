@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
+export const dynamic = 'force-static';
+
 export async function GET() {
   try {
     const result = await pool.query('SELECT NOW() as current_time');

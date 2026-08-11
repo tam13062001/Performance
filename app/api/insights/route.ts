@@ -1,6 +1,8 @@
 import { generateText } from "ai"
 import { type InsightSpec, specToPrompt } from "@/lib/insights"
 
+export const dynamic = 'force-static';
+
 export const maxDuration = 30
 
 export async function POST(req: Request) {
