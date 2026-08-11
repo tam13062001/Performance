@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
+export const dynamic = 'force-static';
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const projectCode = searchParams.get('project_code'); // 'MMU' | 'TANAKAN' | null = tất cả
