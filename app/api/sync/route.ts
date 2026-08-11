@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAllForProject } from '@/lib/syncAll';
 
+
 export const maxDuration = 60;
 
 async function runSync(projectCode: string | undefined, table: string | undefined) {
