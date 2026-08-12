@@ -1,26 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAllForProject } from '@/lib/syncAll';
-
+import { listActiveSyncProjects, getSyncProjectByCode } from '@/lib/sync-projects';
 
 export const maxDuration = 60;
 
 async function runSync(projectCode: string | undefined, table: string | undefined) {
-  const mmuId = process.env.GOOGLE_SHEET_MMU_ID;
-  const tanakanId = process.env.GOOGLE_SHEET_TANAKAN_ID;
-
   const results = [];
 
-  if ((!projectCode || projectCode === 'MMU') && mmuId) {
-    results.push(...(await syncAllForProject('MMU', mmuId, table)));
+  if (projectCode) {
+    // Sync đúng 1 project theo code
+    const project = await getSyncProjectByCode(projectCode);
+    if (!project) {
+      return [{ project_code: projectCode, errorMessage: `Không tìm thấy project "${projectCode}" trong sync_projects.` }];
+    }
+    results.push(...(await syncAllForProject(project.project_code, project.sheet_id, table)));
+    return results;
   }
-  if ((!projectCode || projectCode === 'TANAKAN') && tanakanId) {
-    results.push(...(await syncAllForProject('TANAKAN', tanakanId, table)));
+
+  // Sync toàn bộ project đang active — không còn giới hạn 2 project cứng nữa
+  const projects = await listActiveSyncProjects();
+  for (const p of projects) {
+    results.push(...(await syncAllForProject(p.project_code, p.sheet_id, table)));
   }
 
   return results;
 }
 
-// GET /api/sync?project_code=TANAKAN&table=ad_raw_data - test nhanh 1 bảng bằng cách mở link trên trình duyệt
 export async function GET(request: NextRequest) {
   const projectCode = request.nextUrl.searchParams.get('project_code') ?? undefined;
   const table = request.nextUrl.searchParams.get('table') ?? undefined;

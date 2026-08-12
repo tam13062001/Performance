@@ -13,6 +13,7 @@ import {
   overviewSignals,
   performanceScore,
   planSummary,
+  fillMissingDeliveryStatus,
   type DataStatusRow,
   type DeliveryStatusRow,
   type ReportRow,
@@ -36,11 +37,12 @@ export function useAvailableMonths(projectCode: string) {
 
 /**
  * Fetch delivery/report/plan cho 1 project + 1 kỳ (period_month = 'YTD' hoặc
- * tên tháng thật, KHÔNG phải chuỗi tháng UI cũ). Trả kèm trạng thái loading/error
- * để component tự quyết định hiển thị skeleton hay thông báo lỗi.
+ * tên tháng thật). Nếu ad_raw_data thiếu delivery_status/cost_status (một số
+ * sheet YTD_DATA Excel không có 2 cột này), tự động fallback lấy từ
+ * ad_delivery_status (match theo region/phase/channel/buying_type/asset).
  */
 export function usePlanData(projectCode: string, periodMonth: string) {
-  const [data,setData] = useState<DataStatusRow[]>([]);
+  const [data, setData] = useState<DataStatusRow[]>([]);
   const [delivery, setDelivery] = useState<DeliveryStatusRow[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
   const [plan, setPlan] = useState<UnitCostPlanRow[]>([]);
@@ -77,18 +79,29 @@ export function usePlanData(projectCode: string, periodMonth: string) {
     };
   }, [projectCode, periodMonth]);
 
-// Trong file chứa hook usePlanData
-  // Sửa 'delivery' thành 'data' ở 3 dòng này:
-  const kpis = useMemo(() => overviewKpis(data), [data]);
-  const signals = useMemo(() => overviewSignals(data), [data]);
-  const score = useMemo(() => performanceScore(data), [data]);
-  
-  // Dòng này giữ nguyên như bạn đã sửa:
-  const campaignRows = useMemo(() => campaignDeliveryRows(data), [data]); 
-  
+  // Data đã được "vá" status từ ad_delivery_status khi ad_raw_data thiếu
+  const mergedData = useMemo(() => fillMissingDeliveryStatus(data, delivery), [data, delivery]);
+
+  const kpis = useMemo(() => overviewKpis(mergedData), [mergedData]);
+  const signals = useMemo(() => overviewSignals(mergedData), [mergedData]);
+  const score = useMemo(() => performanceScore(mergedData), [mergedData]);
+  const campaignRows = useMemo(() => campaignDeliveryRows(mergedData), [mergedData]);
+
   const planRows = useMemo(() => planSummary(plan), [plan]);
-  
   const biz = (dim: BusinessDimension) => businessBreakdown(dim, report);
 
-  return { data, delivery, report, plan, loading, error, kpis, signals, score, campaignRows, planRows, biz };
+  return {
+    data: mergedData,
+    delivery,
+    report,
+    plan,
+    loading,
+    error,
+    kpis,
+    signals,
+    score,
+    campaignRows,
+    planRows,
+    biz,
+  };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun } from "lucide-react";
+import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun, ChevronLeft, ChevronRight } from "lucide-react";
 import { Sidebar, navMeta, type PageId } from "./sidebar";
 import { ImportCenter } from "./import-center";
 import { ProjectsPage } from "./projects-page";
@@ -29,19 +29,44 @@ import {
   overviewSignals,
   performanceScore,
   planSummary,
+  fillMissingDeliveryStatus,
   type DataStatusRow,
   type DeliveryStatusRow,
   type ReportRow,
   type UnitCostPlanRow,
   type BusinessDimension,
   type Verdict,
-} from "@/lib/dashboard-data"; // Đường dẫn tuỳ project của bạn
+} from "@/lib/dashboard-data";
 
 // project_code thật trong DB
-const DB_PROJECTS = [
-  { code: "MMU", label: "BUV MMU" },
-  { code: "TANAKAN", label: "Tanakan" },
-];
+type DbProject = { code: string; label: string; sheetId?: string };
+
+function useDbProjects() {
+  const [projects, setProjects] = useState<DbProject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (json.error) {
+          setError(json.error);
+        } else {
+          setProjects(json.projects ?? []);
+        }
+      })
+      .catch((e) => !cancelled && setError(e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return { projects, loading, error };
+}
 
 function VerdictChip({ v }: { v: Verdict }) {
   const cls = v === "Đạt" ? "good" : v === "Cảnh báo" ? "warn" : v === "Chưa đạt" ? "bad" : "neutral";
@@ -122,14 +147,103 @@ export function usePlanData(projectCode: string, periodMonth: string) {
     };
   }, [projectCode, periodMonth]);
 
-  const kpis = useMemo(() => overviewKpis(data), [data]);
-  const signals = useMemo(() => overviewSignals(data), [data]);
-  const score = useMemo(() => performanceScore(data), [data]);
-  const campaignRows = useMemo(() => campaignDeliveryRows(data), [data]); 
+  const mergedData = useMemo(
+    () => fillMissingDeliveryStatus(data, delivery),
+    [data, delivery]
+  );
+
+  useEffect(() => {
+    if (data.length === 0 || delivery.length === 0) return;
+    const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+    const deliveryKeys = new Set(
+      delivery.map((d) => `${norm(d.region)}|${norm(d.phase)}|${norm(d.channel)}|${norm(d.buying_type)}`)
+    );
+    const unmatched = mergedData.filter((r) => !r.delivery_status && !r.cost_status);
+    if (unmatched.length > 0) {
+      console.debug(
+        `[usePlanData] ${unmatched.length}/${mergedData.length} row vẫn "Chưa map" sau khi merge.`,
+        "Sample unmatched keys:",
+        unmatched.slice(0, 5).map((r) => `${norm(r.region)}|${norm(r.phase)}|${norm(r.channel)}|${norm(r.buying_type)}`),
+        "Delivery keys có sẵn:",
+        [...deliveryKeys]
+      );
+    }
+  }, [mergedData, delivery, data]);
+
+  const kpis = useMemo(() => overviewKpis(mergedData), [mergedData]);
+  const signals = useMemo(() => overviewSignals(mergedData), [mergedData]);
+  const score = useMemo(() => performanceScore(mergedData), [mergedData]);
+  const campaignRows = useMemo(() => campaignDeliveryRows(mergedData), [mergedData]);
+
   const planRows = useMemo(() => planSummary(plan), [plan]);
   const biz = (dim: BusinessDimension) => businessBreakdown(dim, report);
 
-  return { data, delivery, report, plan, loading, error, kpis, signals, score, campaignRows, planRows, biz };
+  return {
+    data: mergedData,
+    delivery,
+    report,
+    plan,
+    loading,
+    error,
+    kpis,
+    signals,
+    score,
+    campaignRows,
+    planRows,
+    biz,
+  };
+}
+
+/* ---------------- Pagination Hooks & Components ---------------- */
+function usePagination<T>(data: T[], itemsPerPage = 10) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(data.length / itemsPerPage));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [data]);
+
+  const currentData = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return data.slice(start, start + itemsPerPage);
+  }, [data, currentPage, itemsPerPage]);
+
+  return { currentPage, setCurrentPage, totalPages, currentData };
+}
+
+function PaginationControls({
+  currentPage,
+  totalPages,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "12px", padding: "12px 16px", borderTop: "1px solid var(--border)", fontSize: "13px" }}>
+      <span style={{ color: "var(--fg-muted)" }}>
+        Trang {currentPage} / {totalPages}
+      </span>
+      <div style={{ display: "flex", gap: "4px" }}>
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          style={{ padding: "6px", cursor: currentPage === 1 ? "not-allowed" : "pointer", opacity: currentPage === 1 ? 0.5 : 1, background: "transparent", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--fg)", display: "flex", alignItems: "center" }}
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          style={{ padding: "6px", cursor: currentPage === totalPages ? "not-allowed" : "pointer", opacity: currentPage === totalPages ? 0.5 : 1, background: "transparent", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--fg)", display: "flex", alignItems: "center" }}
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /* ---------------- Monthly trend (YTD view) ---------------- */
@@ -182,6 +296,9 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
 function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const { loading, error, kpis, signals, score, campaignRows, data, biz } = usePlanData(projectCode, periodMonth);
   const bizRows = biz("phase");
+  
+  // Áp dụng phân trang cho campaignRows
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
@@ -277,7 +394,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
               </tr>
             </thead>
             <tbody>
-              {campaignRows.map((r) => (
+              {pagedCampaignRows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.label}</td>
                   <td><PlatformChip p={r.channel} /></td>
@@ -290,11 +407,12 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
                   <td><VerdictChip v={r.verdict} /></td>
                 </tr>
               ))}
-              {campaignRows.length === 0 && (
+              {pagedCampaignRows.length === 0 && (
                 <tr><td colSpan={9}>Chưa có data cho kỳ này.</td></tr>
               )}
             </tbody>
           </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       </article>
     </>
@@ -314,6 +432,9 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
   const { loading, biz } = usePlanData(projectCode, periodMonth);
   const rows = biz(dim);
   const label = bizTabs.find((t) => t.id === dim)?.label;
+
+  // Áp dụng phân trang
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(rows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
 
@@ -353,7 +474,7 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
               <tr><th>Dimension</th><th className="right">Rows</th><th className="right">Impressions</th><th className="right">Reach</th><th className="right">Clicks</th><th className="right">CTR</th><th className="right">Spend</th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {pagedRows.map((r) => (
                 <tr key={r.label}>
                   <td>{r.label}</td><td className="right">{r.campaigns}</td><td className="right">{num(r.impressions)}</td>
                   <td className="right">{num(r.reach)}</td><td className="right">{num(r.clicks)}</td><td className="right">{pct(r.ctr)}</td><td className="right">{vnd(r.spend)}</td>
@@ -361,6 +482,7 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
               ))}
             </tbody>
           </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       </article>
     </>
@@ -371,6 +493,9 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
 function ExecutionSection({ projectCode, platform, level }: { projectCode: string; platform: "Google" | "Meta"; level: "campaign" | "adgroup" }) {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof loadExecutionRows>>>([]);
   const [loading, setLoading] = useState(true);
+
+  // Áp dụng phân trang
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(rows, 10);
 
   useEffect(() => {
     let cancelled = false;
@@ -412,7 +537,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
           <table>
             <thead><tr><th>Tên</th><th className="right">Impressions</th><th className="right">Reach</th><th className="right">Clicks</th><th className="right">CTR</th><th className="right">Spend</th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {pagedRows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.name}</td>
                   <td className="right">{num(r.impressions)}</td>
@@ -422,9 +547,10 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
                   <td className="right">{vnd(r.spend)}</td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={6}>Chưa có data.</td></tr>}
+              {pagedRows.length === 0 && <tr><td colSpan={6}>Chưa có data.</td></tr>}
             </tbody>
           </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       </article>
     </>
@@ -478,6 +604,10 @@ function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { pr
 /* ---------------- Plan page ---------------- */
 function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const { loading, planRows } = usePlanData(projectCode, periodMonth);
+  
+  // Áp dụng phân trang
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedPlanRows } = usePagination(planRows, 10);
+  
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
 
   return (
@@ -501,46 +631,45 @@ function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMon
               <tr><th>Location</th><th>Phase</th><th>Channel</th><th>Buying type</th><th className="right">Unit cost</th><th className="right">Quantity</th><th className="right">Budget</th></tr>
             </thead>
             <tbody>
-              {planRows.map((p, i) => (
+              {pagedPlanRows.map((p, i) => (
                 <tr key={i}>
                   <td>{p.region}</td><td>{p.phase}</td><td>{p.channel}</td><td>{p.buyingType}</td>
                   <td className="right">{vnd(p.unitCost)}</td><td className="right">{num(p.quantity)}</td><td className="right">{vnd(p.budget)}</td>
                 </tr>
               ))}
-              {planRows.length === 0 && <tr><td colSpan={7}>Chưa có plan cho kỳ này.</td></tr>}
+              {pagedPlanRows.length === 0 && <tr><td colSpan={7}>Chưa có plan cho kỳ này.</td></tr>}
             </tbody>
           </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
         </div>
       </article>
     </>
   );
 }
 
-/* ---------------- Shell ---------------- */
 export function Dashboard() {
   const [page, setPage] = useState<PageId>("overview");
-  const [dbProjectCode, setDbProjectCode] = useState<string>(DB_PROJECTS[0].code);
   const [planView, setPlanView] = useState<"MTD" | "YTD">("YTD");
   const [month, setMonth] = useState<string>("");
   const [uiTheme, setUiTheme] = useState<"dark" | "light">("dark");
-  const { projects, activeProject, activeId, setActiveId, addProject, removeProject, updateTheme } = useProjects();
+  const { projects, activeProject, activeId, setActiveId, addProject, removeProject, updateTheme, hydrated } = useProjects();
   const meta = navMeta(page);
-  const theme = activeProject.theme;
-  const availableMonths = useAvailableMonths(dbProjectCode);
 
-  // LOGIC ĐỒNG BỘ: KHI ĐỔI PROJECT UI -> TỰ ĐỘNG CẬP NHẬT DB_PROJECT CODE
-  useEffect(() => {
-    const activeIdx = projects.findIndex((p) => p.id === activeId);
-    if (activeIdx !== -1 && DB_PROJECTS[activeIdx]) {
-      setDbProjectCode(DB_PROJECTS[activeIdx].code);
-    }
-  }, [activeId, projects]);
+  // ⬅️ dbProjectCode giờ LUÔN đồng bộ với sidebar — không còn state riêng
+  const dbProjectCode = activeProject?.code ?? "";
+
+  const availableMonths = useAvailableMonths(dbProjectCode);
 
   useEffect(() => {
     if (availableMonths.length > 0 && !availableMonths.includes(month)) {
       setMonth(availableMonths[0]);
     }
   }, [availableMonths, month]);
+
+  // ⬅️ Reset month khi đổi project, tránh giữ tháng của project cũ
+  useEffect(() => {
+    setMonth("");
+  }, [dbProjectCode]);
 
   const periodMonth = planView === "YTD" ? "YTD" : month;
   const periodLabel = planView === "YTD" ? "YTD" : month || "—";
@@ -556,8 +685,21 @@ export function Dashboard() {
   }, [uiTheme]);
 
   useEffect(() => {
-    applyProjectTheme(theme);
-  }, [theme]);
+    if (activeProject?.theme) applyProjectTheme(activeProject.theme);
+  }, [activeProject]);
+
+  if (!hydrated || !activeProject) {
+    return (
+      <main style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <div className="notice">
+          <Info size={18} />
+          <div><b>Đang tải project…</b></div>
+        </div>
+      </main>
+    );
+  }
+
+  const theme = activeProject.theme;
 
   return (
     <ClientThemeContext.Provider value={{ primary: theme.primary, secondary: theme.secondary, accent: theme.accent }}>
@@ -570,14 +712,7 @@ export function Dashboard() {
             <p>{meta.desc}</p>
           </div>
           <div className="header-controls">
-            <label className="period-select">
-              <span>Project (DB)</span>
-              <select value={dbProjectCode} onChange={(e) => setDbProjectCode(e.target.value)}>
-                {DB_PROJECTS.map((p) => (
-                  <option key={p.code} value={p.code}>{p.label}</option>
-                ))}
-              </select>
-            </label>
+            {/* ⬅️ XÓA hẳn dropdown "Project (DB)" — chỉ còn 1 nguồn chọn project là sidebar */}
             <label className="period-select">
               <span>Plan view</span>
               <select value={planView} onChange={(e) => setPlanView(e.target.value as "MTD" | "YTD")}>
@@ -612,12 +747,12 @@ export function Dashboard() {
           {page === "projects" && (
             <ProjectsPage projects={projects} activeId={activeId} onSelect={setActiveId} onCreate={addProject} onDelete={removeProject} />
           )}
-          {page === "overview" && periodMonth && <OverviewPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
-          {page === "business" && periodMonth && <BusinessPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
+          {page === "overview" && periodMonth && dbProjectCode && <OverviewPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
+          {page === "business" && periodMonth && dbProjectCode && <BusinessPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
           {page === "audience" && <NotAvailableNotice what="Audience demographic (age/gender/region)" />}
-          {page === "google" && <ChannelDashboard projectCode={dbProjectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
-          {page === "meta" && <ChannelDashboard projectCode={dbProjectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
-          {page === "taxonomy" && periodMonth && <PlanPage projectCode={dbProjectCode} periodMonth={periodMonth} />}
+          {page === "google" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
+          {page === "meta" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
+          {page === "taxonomy" && periodMonth && dbProjectCode && <PlanPage projectCode={dbProjectCode} periodMonth={periodMonth} />}
           {page === "import" && <ImportCenter />}
           {page === "reports" && <ReportBuilder project={activeProject} onChange={(patch) => updateTheme(activeId, patch)} />}
         </section>

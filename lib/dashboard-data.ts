@@ -254,6 +254,53 @@ export type CampaignDeliveryRow = {
   statusRaw: string;
 };
 
+export function fillMissingDeliveryStatus(
+  data: DataStatusRow[],
+  delivery: DeliveryStatusRow[]
+): DataStatusRow[] {
+  if (delivery.length === 0) return data;
+
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+  const keyFull = (r: { region: string; phase: string; channel: string; buying_type: string; asset: string }) =>
+    `${norm(r.region)}|${norm(r.phase)}|${norm(r.channel)}|${norm(r.buying_type)}|${norm(r.asset)}`;
+  const keyLoose = (r: { region: string; phase: string; channel: string; buying_type: string }) =>
+    `${norm(r.region)}|${norm(r.phase)}|${norm(r.channel)}|${norm(r.buying_type)}`;
+
+  const fullMap = new Map<string, DeliveryStatusRow>();
+  const looseMap = new Map<string, DeliveryStatusRow>();
+  for (const d of delivery) {
+    fullMap.set(keyFull(d), d);
+    if (!looseMap.has(keyLoose(d))) looseMap.set(keyLoose(d), d);
+  }
+
+  // DEBUG: log toàn bộ key phía delivery để đối chiếu
+  if (typeof window !== "undefined") {
+    console.debug("[fillMissingDeliveryStatus] delivery keys:", [...looseMap.keys()]);
+  }
+
+  return data.map((r) => {
+    const hasStatus = !!(r.delivery_status || r.cost_status);
+    if (hasStatus) return r;
+
+    const match = fullMap.get(keyFull(r)) ?? looseMap.get(keyLoose(r));
+
+    if (!match && typeof window !== "undefined") {
+      console.debug("[fillMissingDeliveryStatus] NO MATCH for data row:", {
+        rowKey: keyLoose(r),
+        region: r.region, phase: r.phase, channel: r.channel, buying_type: r.buying_type,
+      });
+    }
+
+    if (!match) return r;
+
+    return {
+      ...r,
+      delivery_status: r.delivery_status ?? match.delivery_status ?? null,
+      cost_status: r.cost_status ?? match.cost_status ?? null,
+    };
+  });
+}
+
 export function campaignDeliveryRows(data: DataStatusRow[]): CampaignDeliveryRow[] {
   return data
     .map((r) => {

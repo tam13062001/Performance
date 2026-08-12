@@ -2617,3 +2617,57 @@ tbody tr:hover {
     align-items: flex-start;
   }
 }
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.sync-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.sync-progress-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  position: relative;
+}
+.sync-progress-fill {
+  position: absolute;
+  top: 0;
+  left: -30%;
+  width: 30%;
+  height: 100%;
+  background: var(--accent, #6ee7b7);
+  border-radius: 2px;
+  animation: sync-slide 1.2s ease-in-out infinite;
+}
+@keyframes sync-slide {
+  0% { left: -30%; }
+  100% { left: 100%; }
+}
+.sync-progress-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.sync-all-card, .add-project-card {
+  cursor: pointer;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+.sync-all-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}

@@ -1,199 +1,181 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  CalendarClock,
-  CalendarDays,
   CheckCircle2,
   DatabaseZap,
-  Download,
-  LockOpen,
-  Search,
-  Share2,
-  Sheet,
+  Link2,
+  Loader2,
+  Plus,
+  RefreshCw,
   Trash2,
   X,
   XCircle,
 } from "lucide-react"
 
-type SourceId = "planYTD" | "planMTD" | "google" | "meta"
+type DbProject = { code: string; label: string; sheetId?: string }
 
-type SourceDef = {
-  id: SourceId
-  kicker: string
-  title: string
-  desc: string
-  required: string[]
-  Icon: typeof Search
-  iconClass?: string
+type SyncResult = {
+  project_code?: string
+  table?: string
+  rowCount?: number
+  errorMessage?: string
 }
 
-type SourceState = {
-  status: "idle" | "ok" | "error"
-  message: string
-  rows?: number
+type SyncState = {
+  status: "idle" | "syncing" | "ok" | "error"
+  lastSyncedAt?: string
+  results?: SyncResult[]
 }
 
-type LogEntry = { id: number; source: string; ok: boolean; text: string; time: string }
+type LogEntry = { id: number; label: string; ok: boolean; text: string; time: string }
 
-const SOURCES: SourceDef[] = [
-  {
-    id: "planYTD",
-    kicker: "Media plan",
-    title: "YTD Plan",
-    desc: "Plan tổng kỳ theo region, phase, channel, buying type và asset.",
-    required: ["region", "phase", "channel", "buying_type", "asset", "unit_cost", "quanity", "start_date", "end_date"],
-    Icon: CalendarDays,
-  },
-  {
-    id: "planMTD",
-    kicker: "Media plan",
-    title: "MTD Plan",
-    desc: "Plan từng tháng, dùng để tính pacing và forecast.",
-    required: ["month", "region", "phase", "channel", "buying_type", "asset", "unit_cost", "quanity", "start_date", "end_date"],
-    Icon: CalendarClock,
-  },
-  {
-    id: "google",
-    kicker: "Raw delivery",
-    title: "Google Ads",
-    desc: "CSV/XLSX export Campaign, Ad Group, Keyword và Audience.",
-    required: [],
-    Icon: Search,
-    iconClass: "google-icon",
-  },
-  {
-    id: "meta",
-    kicker: "Raw delivery",
-    title: "Facebook / Meta",
-    desc: "Workbook hỗ trợ các sheet Utd, Age, Gender và Region.",
-    required: [],
-    Icon: Share2,
-    iconClass: "meta-icon",
-  },
-]
-
-const FORMATS: { title: string; cols: string }[] = [
-  { title: "YTD Plan", cols: "region, phase, channel, buying_type, asset, unit_cost, quanity, start_date, end_date" },
-  { title: "MTD Plan", cols: "month, region, phase, channel, buying_type, asset, unit_cost, quanity, start_date, end_date" },
-  { title: "Meta workbook", cols: "Utd, Age, Gender, Region" },
-  { title: "Google workbook", cols: "Campaigns, AdGroups, Keywords, Age, Gender, Region" },
-]
-
-const TEMPLATES: { label: string; file: string; content: string }[] = [
-  {
-    label: "YTD template",
-    file: "ytd_plan_template.csv",
-    content: "region,phase,channel,buying_type,asset,unit_cost,quanity,start_date,end_date\nHCM,Awareness,Google,CPM,Search,120,500000,2026-01-01,2026-12-31\n",
-  },
-  {
-    label: "MTD template",
-    file: "mtd_plan_template.csv",
-    content: "month,region,phase,channel,buying_type,asset,unit_cost,quanity,start_date,end_date\n2026-06,HCM,Awareness,Meta,CPC,3500,40000,2026-06-01,2026-06-30\n",
-  },
-  {
-    label: "Google template",
-    file: "google_raw_template.csv",
-    content: "campaign,ad_group,keyword,impressions,clicks,cost\nBUV-Search-Brand,Brand-Core,buv,120000,4800,9600000\n",
-  },
-  {
-    label: "Meta template",
-    file: "meta_raw_template.csv",
-    content: "campaign,ad_set,age,gender,region,impressions,reach,clicks\nBUV-Meta-Awareness,Broad-18-34,18-24,Nữ,HCM,300000,180000,21000\n",
-  },
-]
-
-// Minimal CSV header + row parser for client-side validation.
-function parseCsv(text: string) {
-  const lines = text.trim().split(/\r?\n/).filter(Boolean)
-  if (lines.length === 0) return { headers: [] as string[], rows: 0 }
-  const headers = lines[0].split(",").map((h) => h.trim().toLowerCase())
-  return { headers, rows: lines.length - 1 }
+async function fetchProjects(): Promise<DbProject[]> {
+  const res = await fetch("/api/projects")
+  const json = await res.json()
+  if (json.error) throw new Error(json.error)
+  return json.projects ?? []
 }
 
-function download(file: string, content: string) {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = file
-  a.click()
-  URL.revokeObjectURL(url)
+async function runSync(projectCode?: string, table?: string): Promise<{ synced_at: string; results: SyncResult[] }> {
+  const params = new URLSearchParams()
+  if (projectCode) params.set("project_code", projectCode)
+  if (table) params.set("table", table)
+  const res = await fetch(`/api/sync${params.toString() ? `?${params}` : ""}`)
+  const json = await res.json()
+  if (!res.ok && !json.results) throw new Error(json.error ?? "Sync thất bại")
+  return json
+}
+
+// Thanh progress dạng indeterminate — vì /api/sync là 1 request dài (tới 60s)
+// không trả % tiến độ thật, nên hiện animation trượt + đếm giây đã trôi qua.
+function SyncProgressBar({ elapsedMs }: { elapsedMs: number }) {
+  const seconds = (elapsedMs / 1000).toFixed(1)
+  return (
+    <div className="sync-progress">
+      <div className="sync-progress-track">
+        <div className="sync-progress-fill" />
+      </div>
+      <span className="sync-progress-label">
+        <Loader2 size={13} className="spin" /> Đang đồng bộ… {seconds}s
+      </span>
+    </div>
+  )
 }
 
 export function ImportCenter() {
-  const [states, setStates] = useState<Record<SourceId, SourceState>>({
-    planYTD: { status: "idle", message: "Chưa import" },
-    planMTD: { status: "idle", message: "Chưa import" },
-    google: { status: "idle", message: "Đang dùng demo data" },
-    meta: { status: "idle", message: "Đang dùng demo data" },
-  })
+  const [projects, setProjects] = useState<DbProject[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(true)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+
+  // Trạng thái sync theo từng project_code, + "ALL" cho sync toàn bộ
+  const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [log, setLog] = useState<LogEntry[]>([])
-  const [sheetSource, setSheetSource] = useState<SourceDef | null>(null)
   const logId = useRef(0)
 
-  const readyCount = useMemo(() => Object.values(states).filter((s) => s.status === "ok").length, [states])
+  // Đếm thời gian đang chạy để hiện lên progress bar
+  const [runningKey, setRunningKey] = useState<string | null>(null)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const startRef = useRef<number>(0)
 
-  function addLog(source: string, ok: boolean, text: string) {
+  const [addOpen, setAddOpen] = useState(false)
+  const [addLoading, setAddLoading] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  const readyCount = useMemo(
+    () => projects.filter((p) => syncStates[p.code]?.status === "ok").length,
+    [projects, syncStates]
+  )
+
+  function loadProjects() {
+    setProjectsLoading(true)
+    setProjectsError(null)
+    fetchProjects()
+      .then(setProjects)
+      .catch((e) => setProjectsError(e.message))
+      .finally(() => setProjectsLoading(false))
+  }
+
+  useEffect(() => {
+    loadProjects()
+  }, [])
+
+  useEffect(() => {
+    if (!runningKey) return
+    startRef.current = Date.now()
+    setElapsedMs(0)
+    const interval = setInterval(() => setElapsedMs(Date.now() - startRef.current), 100)
+    return () => clearInterval(interval)
+  }, [runningKey])
+
+  function addLog(label: string, ok: boolean, text: string) {
     logId.current += 1
-    setLog((prev) => [
-      { id: logId.current, source, ok, text, time: new Date().toLocaleTimeString("vi-VN") },
-      ...prev,
-    ].slice(0, 8))
+    setLog((prev) =>
+      [{ id: logId.current, label, ok, text, time: new Date().toLocaleTimeString("vi-VN") }, ...prev].slice(0, 10)
+    )
   }
 
-  async function handleFile(def: SourceDef, file: File) {
-    const isCsv = /\.csv$/i.test(file.name)
-    if (!isCsv) {
-      // Excel workbooks are accepted in the demo but validated only by name.
-      setStates((s) => ({ ...s, [def.id]: { status: "ok", message: `Đã nhận ${file.name}` } }))
-      addLog(def.title, true, `Nhận workbook ${file.name} (${Math.round(file.size / 1024)} KB). Sẽ xử lý ở bản production.`)
-      return
-    }
-    const text = await file.text()
-    const { headers, rows } = parseCsv(text)
-    const missing = def.required.filter((c) => !headers.includes(c))
+  async function handleSync(projectCode?: string) {
+    const key = projectCode ?? "ALL"
+    setRunningKey(key)
+    setSyncStates((s) => ({ ...s, [key]: { status: "syncing" } }))
 
-    if (rows === 0) {
-      setStates((s) => ({ ...s, [def.id]: { status: "error", message: "File rỗng" } }))
-      addLog(def.title, false, `${file.name}: không có dòng dữ liệu nào.`)
-      return
+    try {
+      const { synced_at, results } = await runSync(projectCode)
+      const hasError = results.some((r) => r.errorMessage)
+      const label = projectCode ? projects.find((p) => p.code === projectCode)?.label ?? projectCode : "Tất cả project"
+
+      setSyncStates((s) => ({
+        ...s,
+        [key]: { status: hasError ? "error" : "ok", lastSyncedAt: synced_at, results },
+      }))
+
+      if (hasError) {
+        const firstError = results.find((r) => r.errorMessage)
+        addLog(label, false, `${firstError?.table ?? "?"}: ${firstError?.errorMessage}`)
+      } else {
+        const totalRows = results.reduce((sum, r) => sum + (r.rowCount ?? 0), 0)
+        addLog(label, true, `Đồng bộ xong ${results.length} bảng${totalRows ? ` · ${totalRows} dòng` : ""}.`)
+      }
+    } catch (e: any) {
+      setSyncStates((s) => ({ ...s, [key]: { status: "error" } }))
+      addLog(projectCode ?? "Tất cả project", false, e.message ?? "Lỗi không xác định")
+    } finally {
+      setRunningKey(null)
     }
-    if (missing.length > 0) {
-      setStates((s) => ({ ...s, [def.id]: { status: "error", message: `Thiếu ${missing.length} cột` } }))
-      addLog(def.title, false, `${file.name}: thiếu cột ${missing.join(", ")}.`)
-      return
-    }
-    setStates((s) => ({ ...s, [def.id]: { status: "ok", message: `${rows} dòng hợp lệ`, rows } }))
-    addLog(def.title, true, `${file.name}: ${rows} dòng, ${headers.length} cột — hợp lệ.`)
   }
 
-  function reset() {
-    setStates({
-      planYTD: { status: "idle", message: "Chưa import" },
-      planMTD: { status: "idle", message: "Chưa import" },
-      google: { status: "idle", message: "Đang dùng demo data" },
-      meta: { status: "idle", message: "Đang dùng demo data" },
-    })
+  function resetLog() {
     setLog([])
+    setSyncStates({})
   }
 
-  function handleSheetImport(e: React.FormEvent<HTMLFormElement>) {
+  async function handleAddProject(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!sheetSource) return
+    setAddLoading(true)
+    setAddError(null)
     const form = new FormData(e.currentTarget)
     const url = String(form.get("sheetUrl") ?? "").trim()
-    const tab = String(form.get("sheetTab") ?? "").trim()
-    const isSheet = /docs\.google\.com\/spreadsheets/.test(url)
-    if (!isSheet) {
-      setStates((s) => ({ ...s, [sheetSource.id]: { status: "error", message: "Link không hợp lệ" } }))
-      addLog(sheetSource.title, false, "Link Google Sheets không hợp lệ.")
-      setSheetSource(null)
-      return
+    const code = String(form.get("projectCode") ?? "").trim()
+    const label = String(form.get("projectLabel") ?? "").trim()
+
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, project_code: code, label }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? "Không thêm được project")
+
+      addLog(label, true, `Đã thêm project mới "${code}" từ Google Sheet.`)
+      setAddOpen(false)
+      loadProjects()
+    } catch (e: any) {
+      setAddError(e.message)
+    } finally {
+      setAddLoading(false)
     }
-    setStates((s) => ({ ...s, [sheetSource.id]: { status: "ok", message: "Đã kết nối Sheet" } }))
-    addLog(sheetSource.title, true, `Đã kết nối Google Sheet${tab ? ` · tab "${tab}"` : ""}. Dữ liệu sẽ đồng bộ ở bản production.`)
-    setSheetSource(null)
   }
 
   return (
@@ -201,74 +183,110 @@ export function ImportCenter() {
       <div className="hero import-hero">
         <div>
           <span className="eyebrow">
-            <DatabaseZap size={13} /> Data import center
+            <DatabaseZap size={13} /> Sync data center
           </span>
-          <h2>Upload plan và raw data để cập nhật toàn bộ Rocket Performance.</h2>
-          <p>Hỗ trợ CSV và Excel. Dữ liệu được xử lý ngay trong trình duyệt hiện tại; không upload lên server trong bản demo này.</p>
+          <h2>Đồng bộ dữ liệu từ Google Sheet vào Rocket Performance.</h2>
+          <p>Mỗi project đã được kết nối 1 Google Sheet. Bấm "Sync now" để lấy dữ liệu mới nhất, hoặc thêm project mới bằng URL Sheet.</p>
         </div>
         <div className="hero-badge">
-          <b>{readyCount}/4</b>
-          <span>Sources ready</span>
+          <b>{readyCount}/{projects.length || 0}</b>
+          <span>Project đã sync</span>
         </div>
       </div>
 
       <div className="import-grid">
-        {SOURCES.map((def) => {
-          const st = states[def.id]
+        <button type="button" className="upload-card sync-all-card" onClick={() => handleSync()} disabled={!!runningKey}>
+          <div className="upload-icon">
+            <RefreshCw size={20} className={runningKey === "ALL" ? "spin" : ""} />
+          </div>
+          <div className="upload-body">
+            <small>Toàn bộ project</small>
+            <h3>Sync tất cả</h3>
+            <p>Chạy sync cho mọi project đang active trong DB.</p>
+          </div>
+          {runningKey === "ALL" && <SyncProgressBar elapsedMs={elapsedMs} />}
+          {runningKey !== "ALL" && syncStates.ALL && (
+            <div className={`upload-status ${syncStates.ALL.status}`}>
+              {syncStates.ALL.status === "ok" ? "Đã sync xong" : "Có lỗi khi sync"}
+            </div>
+          )}
+        </button>
+
+        {projectsLoading && <div className="notice"><Loader2 size={16} className="spin" /><div><b>Đang tải danh sách project…</b></div></div>}
+        {projectsError && <div className="notice error"><XCircle size={16} /><div><b>Lỗi tải project</b><p>{projectsError}</p></div></div>}
+
+        {!projectsLoading && projects.length === 0 && (
+          <div className="notice">
+            <DatabaseZap size={16} />
+            <div>
+              <b>Chưa có project nào.</b>
+              <p>Thêm project mới bằng Google Sheet URL bên dưới.</p>
+            </div>
+          </div>
+        )}
+
+        {projects.map((p) => {
+          const st = syncStates[p.code]
+          const isRunning = runningKey === p.code
           return (
-            <article key={def.id} className="upload-card">
-              <div className={`upload-icon ${def.iconClass ?? ""}`}>
-                <def.Icon size={20} />
+            <article key={p.code} className="upload-card">
+              <div className="upload-icon">
+                <RefreshCw size={20} className={isRunning ? "spin" : ""} />
               </div>
               <div className="upload-body">
-                <small>{def.kicker}</small>
-                <h3>{def.title}</h3>
-                <p>{def.desc}</p>
+                <small>{p.code}</small>
+                <h3>{p.label}</h3>
+                <p>Sync riêng project này từ Google Sheet đã kết nối.</p>
               </div>
               <div className="source-actions">
-                <label className="upload-button">
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) handleFile(def, f)
-                      e.target.value = ""
-                    }}
-                  />
-                  Upload file
-                </label>
-                <button type="button" className="sheet-button" onClick={() => setSheetSource(def)}>
-                  <Sheet size={15} /> Google Sheet
+                <button type="button" className="sheet-button" onClick={() => handleSync(p.code)} disabled={!!runningKey}>
+                  <RefreshCw size={15} /> Sync now
                 </button>
               </div>
-              <div className={`upload-status ${st.status}`}>{st.message}</div>
+              {isRunning && <SyncProgressBar elapsedMs={elapsedMs} />}
+              {!isRunning && st && (
+                <div className={`upload-status ${st.status}`}>
+                  {st.status === "ok" && `Đã sync · ${st.lastSyncedAt ? new Date(st.lastSyncedAt).toLocaleTimeString("vi-VN") : ""}`}
+                  {st.status === "error" && "Sync lỗi — xem log bên dưới"}
+                </div>
+              )}
             </article>
           )
         })}
+
+        <button type="button" className="upload-card add-project-card" onClick={() => setAddOpen(true)}>
+          <div className="upload-icon">
+            <Plus size={20} />
+          </div>
+          <div className="upload-body">
+            <small>New source</small>
+            <h3>Thêm project mới</h3>
+            <p>Dán Google Sheet URL để tự động lấy sheet ID và kết nối.</p>
+          </div>
+        </button>
       </div>
 
       <div className="grid-2">
         <article className="card">
           <div className="card-head">
             <div>
-              <small>Import validation</small>
-              <h3>Kết quả xử lý gần nhất</h3>
+              <small>Sync log</small>
+              <h3>Lịch sử đồng bộ gần nhất</h3>
             </div>
-            <button type="button" className="ghost-button" onClick={reset}>
-              <Trash2 size={15} /> Reset imported data
+            <button type="button" className="ghost-button" onClick={resetLog}>
+              <Trash2 size={15} /> Xóa log
             </button>
           </div>
           <div className="import-log">
             {log.length === 0 ? (
-              <div className="empty-log">Chọn một file để bắt đầu.</div>
+              <div className="empty-log">Chưa có lần sync nào. Bấm "Sync now" để bắt đầu.</div>
             ) : (
               log.map((l) => (
                 <div key={l.id} className={`log-row ${l.ok ? "ok" : "error"}`}>
                   {l.ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
                   <div>
                     <b>
-                      {l.source} · {l.time}
+                      {l.label} · {l.time}
                     </b>
                     <span>{l.text}</span>
                   </div>
@@ -281,69 +299,72 @@ export function ImportCenter() {
         <article className="card">
           <div className="card-head">
             <div>
-              <small>Supported format</small>
-              <h3>Chuẩn cột dữ liệu</h3>
+              <small>Chi tiết bảng</small>
+              <h3>Kết quả sync theo từng table</h3>
             </div>
           </div>
           <div className="format-list">
-            {FORMATS.map((f) => (
-              <div key={f.title}>
-                <b>{f.title}</b>
-                <code>{f.cols}</code>
-              </div>
-            ))}
-          </div>
-          <div className="template-links">
-            {TEMPLATES.map((t) => (
-              <button key={t.file} type="button" onClick={() => download(t.file, t.content)}>
-                {t.label}
-              </button>
-            ))}
+            {Object.entries(syncStates).flatMap(([key, st]) =>
+              (st.results ?? []).map((r, i) => (
+                <div key={`${key}-${i}`}>
+                  <b>
+                    {r.project_code ?? key} · {r.table ?? "—"}
+                  </b>
+                  <code>
+                    {r.errorMessage ? r.errorMessage : `${r.rowCount ?? "?"} dòng — OK`}
+                  </code>
+                </div>
+              ))
+            )}
+            {Object.keys(syncStates).length === 0 && <div className="empty-log">Chưa có kết quả sync nào.</div>}
           </div>
         </article>
       </div>
 
-      {sheetSource && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setSheetSource(null)}>
+      {addOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => !addLoading && setAddOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <div>
-                <small>Google Sheets source</small>
-                <h3>Import {sheetSource.title} từ Google Sheets</h3>
+                <small>New sync source</small>
+                <h3>Thêm project từ Google Sheet URL</h3>
               </div>
-              <button type="button" className="icon-btn" aria-label="Đóng" onClick={() => setSheetSource(null)}>
+              <button type="button" className="icon-btn" aria-label="Đóng" onClick={() => setAddOpen(false)} disabled={addLoading}>
                 <X size={16} />
               </button>
             </div>
-            <form className="project-form" onSubmit={handleSheetImport}>
+            <form className="project-form" onSubmit={handleAddProject}>
+              <label>
+                <span>Project code *</span>
+                <input name="projectCode" required placeholder="VD: NEWCLIENT" />
+              </label>
+              <label>
+                <span>Tên hiển thị *</span>
+                <input name="projectLabel" required placeholder="VD: New Client Campaign" />
+              </label>
               <label className="full">
-                <span>Google Sheets link *</span>
+                <span>Google Sheets URL *</span>
                 <input name="sheetUrl" type="url" required placeholder="https://docs.google.com/spreadsheets/d/.../edit" />
               </label>
-              <label>
-                <span>Tên tab</span>
-                <input name="sheetTab" placeholder="VD: YTD Plan" />
-              </label>
-              <label>
-                <span>Range (không bắt buộc)</span>
-                <input name="sheetRange" placeholder="VD: A1:I500" />
-              </label>
               <div className="full sheet-permission-note">
-                <LockOpen size={18} />
+                <Link2 size={18} />
                 <div>
                   <b>Quyền truy cập</b>
-                  <p>
-                    Sheet cần để &quot;Anyone with the link – Viewer&quot; hoặc Publish to web. App chỉ đọc dữ liệu và lưu bản đã chuẩn hóa
-                    theo project hiện tại.
-                  </p>
+                  <p>Sheet cần được share Viewer cho service account đồng bộ dữ liệu — hệ thống sẽ tự kiểm tra khi bạn bấm "Thêm project".</p>
                 </div>
               </div>
+              {addError && (
+                <div className="full">
+                  <div className="upload-status error">{addError}</div>
+                </div>
+              )}
               <div className="modal-actions full">
-                <button type="button" className="ghost-button" onClick={() => setSheetSource(null)}>
+                <button type="button" className="ghost-button" onClick={() => setAddOpen(false)} disabled={addLoading}>
                   Hủy
                 </button>
-                <button type="submit" className="primary-button">
-                  <Download size={15} /> Import Sheet
+                <button type="submit" className="primary-button" disabled={addLoading}>
+                  {addLoading ? <Loader2 size={15} className="spin" /> : <Plus size={15} />}
+                  {addLoading ? "Đang kiểm tra..." : "Thêm project"}
                 </button>
               </div>
             </form>
