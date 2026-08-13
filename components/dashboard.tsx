@@ -652,7 +652,7 @@ export function Dashboard() {
   const [planView, setPlanView] = useState<"MTD" | "YTD">("YTD");
   const [month, setMonth] = useState<string>("");
   const [uiTheme, setUiTheme] = useState<"dark" | "light">("dark");
-  const { projects, activeProject, activeId, setActiveId, addProject, removeProject, updateTheme, hydrated } = useProjects();
+  const { projects, activeProject, activeId, setActiveId, addProject, editProject, removeProject, updateTheme, hydrated } = useProjects();
   const meta = navMeta(page);
 
   // ⬅️ dbProjectCode giờ LUÔN đồng bộ với sidebar — không còn state riêng
@@ -745,7 +745,7 @@ export function Dashboard() {
 
         <section className="page" key={uiTheme}>
           {page === "projects" && (
-            <ProjectsPage projects={projects} activeId={activeId} onSelect={setActiveId} onCreate={addProject} onDelete={removeProject} />
+            <ProjectsPage projects={projects} activeId={activeId} onSelect={setActiveId} onCreate={addProject} onEdit={editProject} onDelete={removeProject} />
           )}
           {page === "overview" && periodMonth && dbProjectCode && <OverviewPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
           {page === "business" && periodMonth && dbProjectCode && <BusinessPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}

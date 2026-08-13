@@ -10,7 +10,7 @@ export type BillingModel = "transparent" | "non-transparent"
 
 export type Project = {
   id: string
-  code: string // ⬅️ map trực tiếp tới ad_projects.project_code — thay cho đồng bộ theo index
+  code: string // map trực tiếp tới ad_projects.project_code
   name: string
   client: string
   description: string
@@ -24,12 +24,28 @@ export type Project = {
 
 export type NewProject = Omit<Project, "id" | "createdAt" | "theme" | "code">
 
-export type DbProject = { code: string; label: string; sheetId?: string }
+// Payload khi tạo project mới — cần thêm projectCode + sheetUrl để ghi
+// đồng thời vào ad_projects và sync_projects qua API.
+export type CreateProjectInput = NewProject & {
+  projectCode: string
+  sheetUrl: string
+}
 
-const STORAGE_KEY = "rocket.projects.v11" // đổi key vì đổi schema (thêm field code)
+export type DbProject = {
+  code: string
+  label: string
+  sheetId?: string
+  client?: string
+  description?: string
+  startDate?: string
+  endDate?: string
+  status?: string
+  billingModel?: string
+}
+
+const STORAGE_KEY = "rocket.projects.v11"
 const ACTIVE_KEY = "rocket.activeProject.v11"
 
-// Bảng màu xoay vòng cho project mới auto-tạo từ DB (không hardcode theo tên khách hàng cụ thể nữa)
 const THEME_PALETTE: Pick<ClientTheme, "primary" | "secondary" | "accent">[] = [
   { primary: "#C8102E", secondary: "#12284C", accent: "#D4AF37" },
   { primary: "#0A7DC2", secondary: "#F5A623", accent: "#7FC5E8" },
@@ -49,29 +65,26 @@ function buildDefaultTheme(label: string, index: number): ClientTheme {
   }
 }
 
-// Tạo 1 Project (UI) mặc định từ 1 DbProject — dùng khi project có trong DB
-// nhưng chưa từng được mở trên UI này (chưa có trong localStorage).
 function buildProjectFromDb(db: DbProject, index: number): Project {
   return {
-    id: db.code, // dùng thẳng project_code làm id cho đơn giản, tránh lệch
+    id: db.code,
     code: db.code,
     name: db.label,
-    client: "",
-    description: "",
-    startDate: "",
-    endDate: "",
-    status: "Active",
-    billingModel: "transparent",
+    client: db.client ?? "",
+    description: db.description ?? "",
+    startDate: db.startDate ?? "",
+    endDate: db.endDate ?? "",
+    status: (db.status as ProjectStatus) ?? "Active",
+    billingModel: (db.billingModel as BillingModel) ?? "transparent",
     createdAt: Date.now(),
     theme: buildDefaultTheme(db.label, index),
   }
 }
 
-// Backfill theme cho project cũ lưu trước khi có field `code` hoặc theme system.
 function withDefaults(p: Partial<Project> & { id: string }): Project {
   return {
     ...(p as Project),
-    code: p.code ?? p.id, // project lưu từ bản cũ chưa có `code` -> fallback dùng id
+    code: p.code ?? p.id,
     billingModel: p.billingModel ?? "transparent",
     theme: { ...DEFAULT_THEME, ...(p.theme ?? {}) },
   }
@@ -94,7 +107,6 @@ function loadActive(fallback: string): string {
   return window.localStorage.getItem(ACTIVE_KEY) ?? fallback
 }
 
-// Fetch danh sách project thật từ DB (ad_projects) — nguồn duy nhất, không hardcode.
 async function fetchDbProjects(): Promise<DbProject[]> {
   try {
     const res = await fetch("/api/projects")
@@ -112,25 +124,31 @@ export function useProjects() {
   const [hydrated, setHydrated] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Rehydrate: merge project đã lưu local (giữ theme/metadata tuỳ chỉnh) với
-  // danh sách thật từ DB (tự thêm entry mới cho project chưa từng mở trên UI này).
+  const refreshFromDb = useCallback(async () => {
+    const local = loadLocal()
+    const dbProjects = await fetchDbProjects()
+
+    const localByCode = new Map(local.map((p) => [p.code, p]))
+    // Ưu tiên data từ DB (source of truth) nhưng vẫn giữ theme đã lưu local
+    const merged: Project[] = dbProjects.map((db, i) => {
+      const cached = localByCode.get(db.code)
+      const fresh = buildProjectFromDb(db, i)
+      return cached ? { ...fresh, theme: cached.theme } : fresh
+    })
+
+    const orphaned = local.filter((p) => !dbProjects.some((db) => db.code === p.code))
+    const finalList = [...merged, ...orphaned]
+
+    setProjects(finalList)
+    return finalList
+  }, [])
+
   useEffect(() => {
     let cancelled = false
 
     async function init() {
-      const local = loadLocal()
-      const dbProjects = await fetchDbProjects()
+      const finalList = await refreshFromDb()
       if (cancelled) return
-
-      const localByCode = new Map(local.map((p) => [p.code, p]))
-      const merged: Project[] = dbProjects.map((db, i) => localByCode.get(db.code) ?? buildProjectFromDb(db, i))
-
-      // Giữ lại project local nào không còn khớp DB (vd bị xoá khỏi ad_projects)
-      // để không mất theme đã tuỳ chỉnh — nhưng đặt cuối danh sách.
-      const orphaned = local.filter((p) => !dbProjects.some((db) => db.code === p.code))
-      const finalList = [...merged, ...orphaned]
-
-      setProjects(finalList)
       setActiveId(loadActive(finalList[0]?.id ?? ""))
       setHydrated(true)
       setLoading(false)
@@ -140,7 +158,7 @@ export function useProjects() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshFromDb])
 
   useEffect(() => {
     if (!hydrated) return
@@ -152,37 +170,107 @@ export function useProjects() {
     window.localStorage.setItem(ACTIVE_KEY, activeId)
   }, [activeId, hydrated])
 
-  // Tạo project UI-only (không link DB) — dùng khi cần workspace riêng chưa có
-  // sheet đồng bộ. Nếu muốn link tới DB, thêm project qua "/api/projects" (POST)
-  // trước rồi hook này sẽ tự nhận ở lần load tiếp theo.
-  const addProject = useCallback((data: NewProject) => {
-    const id = `${data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${Date.now().toString(36)}`
+  // Tạo project mới: gọi API để ghi vào CẢ ad_projects lẫn sync_projects (cùng project_code)
+  const addProject = useCallback(async (data: CreateProjectInput) => {
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: data.sheetUrl,
+        project_code: data.projectCode,
+        label: data.name,
+        client: data.client,
+        description: data.description,
+        start_date: data.startDate || null,
+        end_date: data.endDate || null,
+        status: data.status,
+        billing_model: data.billingModel,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      throw new Error(json.error ?? "Không tạo được project")
+    }
+
+    const p = json.project
     const project: Project = {
-      ...data,
-      id,
-      code: id, // chưa link DB thật -> tạm dùng id làm code, sẽ không có data (impressions...) cho tới khi link
+      id: p.code,
+      code: p.code,
+      name: data.name,
+      client: p.client ?? data.client,
+      description: p.description ?? data.description,
+      startDate: p.startDate ?? data.startDate,
+      endDate: p.endDate ?? data.endDate,
+      status: p.status ?? data.status,
+      billingModel: p.billingModel ?? data.billingModel,
       createdAt: Date.now(),
-      theme: buildDefaultTheme(data.client || data.name, projectsLengthRef()),
+      theme: buildDefaultTheme(data.client || data.name, projects.length),
     }
     setProjects((prev) => [...prev, project])
     setActiveId(project.id)
     return project
+  }, [projects.length])
 
-    function projectsLengthRef() {
-      return 0 // màu mặc định đầu palette cho project UI-only
+  // Sửa metadata project đã tồn tại (không đổi project_code/sheet)
+  const editProject = useCallback(async (code: string, data: NewProject) => {
+    const res = await fetch(`/api/projects?project_code=${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: data.name,
+        client: data.client,
+        description: data.description,
+        start_date: data.startDate || null,
+        end_date: data.endDate || null,
+        status: data.status,
+        billing_model: data.billingModel,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      throw new Error(json.error ?? "Không cập nhật được project")
     }
+
+    const p = json.project
+    setProjects((prev) =>
+      prev.map((proj) =>
+        proj.code === code
+          ? {
+              ...proj,
+              name: data.name,
+              client: p.client ?? data.client,
+              description: p.description ?? data.description,
+              startDate: p.startDate ?? data.startDate,
+              endDate: p.endDate ?? data.endDate,
+              status: p.status ?? data.status,
+              billingModel: p.billingModel ?? data.billingModel,
+            }
+          : proj
+      )
+    )
   }, [])
 
   const updateTheme = useCallback((id: string, patch: Partial<ClientTheme>) => {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, theme: { ...p.theme, ...patch } } : p)))
   }, [])
 
+  // Xóa project — gọi API xóa cả ad_projects + sync_projects, chỉ update
+  // state local sau khi backend xác nhận xóa thành công.
   const removeProject = useCallback(
-    (id: string) => {
-      setProjects((prev) => {
-        const next = prev.filter((p) => p.id !== id)
-        return next
-      })
+    async (id: string, force = false) => {
+      const project = projects.find((p) => p.id === id)
+      if (!project) return
+
+      const res = await fetch(
+        `/api/projects?project_code=${encodeURIComponent(project.code)}${force ? "&force=true" : ""}`,
+        { method: "DELETE" }
+      )
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error ?? "Không xóa được project")
+      }
+
+      setProjects((prev) => prev.filter((p) => p.id !== id))
       setActiveId((current) => {
         if (current !== id) return current
         const remaining = projects.filter((p) => p.id !== id)
@@ -194,5 +282,17 @@ export function useProjects() {
 
   const activeProject = projects.find((p) => p.id === activeId) ?? projects[0]
 
-  return { projects, activeProject, activeId, setActiveId, addProject, removeProject, updateTheme, hydrated, loading }
+  return {
+    projects,
+    activeProject,
+    activeId,
+    setActiveId,
+    addProject,
+    editProject,
+    removeProject,
+    updateTheme,
+    hydrated,
+    loading,
+    refreshFromDb,
+  }
 }
