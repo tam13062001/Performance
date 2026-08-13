@@ -5,15 +5,20 @@ import {
   CheckCircle2,
   DatabaseZap,
   Link2,
+  ListChecks,
   Loader2,
   Plus,
   RefreshCw,
+  Sheet as SheetIcon,
   Trash2,
   X,
   XCircle,
 } from "lucide-react"
+import { tableForSheetTab } from "@/lib/sheet-table-map"
 
 type DbProject = { code: string; label: string; sheetId?: string }
+
+type SheetTab = { title: string; sheetId?: number; rowCount?: number | null }
 
 type SyncResult = {
   project_code?: string
@@ -37,7 +42,18 @@ async function fetchProjects(): Promise<DbProject[]> {
   return json.projects ?? []
 }
 
-async function runSync(projectCode?: string, table?: string): Promise<{ synced_at: string; results: SyncResult[] }> {
+async function fetchSheetTabs(projectCode: string): Promise<SheetTab[]> {
+  const res = await fetch(`/api/projects/sheets?project_code=${encodeURIComponent(projectCode)}`)
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error ?? "Không lấy được danh sách sheet")
+  return json.tabs ?? []
+}
+
+// Dùng lại đúng API sync cũ: /api/sync?project_code=...&table=...
+async function runSync(
+  projectCode?: string,
+  table?: string
+): Promise<{ synced_at: string; results: SyncResult[] }> {
   const params = new URLSearchParams()
   if (projectCode) params.set("project_code", projectCode)
   if (table) params.set("table", table)
@@ -47,8 +63,6 @@ async function runSync(projectCode?: string, table?: string): Promise<{ synced_a
   return json
 }
 
-// Thanh progress dạng indeterminate — vì /api/sync là 1 request dài (tới 60s)
-// không trả % tiến độ thật, nên hiện animation trượt + đếm giây đã trôi qua.
 function SyncProgressBar({ elapsedMs }: { elapsedMs: number }) {
   const seconds = (elapsedMs / 1000).toFixed(1)
   return (
@@ -68,12 +82,10 @@ export function ImportCenter() {
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [projectsError, setProjectsError] = useState<string | null>(null)
 
-  // Trạng thái sync theo từng project_code, + "ALL" cho sync toàn bộ
   const [syncStates, setSyncStates] = useState<Record<string, SyncState>>({})
   const [log, setLog] = useState<LogEntry[]>([])
   const logId = useRef(0)
 
-  // Đếm thời gian đang chạy để hiện lên progress bar
   const [runningKey, setRunningKey] = useState<string | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
   const startRef = useRef<number>(0)
@@ -81,6 +93,13 @@ export function ImportCenter() {
   const [addOpen, setAddOpen] = useState(false)
   const [addLoading, setAddLoading] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+
+  // ---- Chọn sheet để sync ----
+  const [sheetPickerProject, setSheetPickerProject] = useState<DbProject | null>(null)
+  const [sheetTabs, setSheetTabs] = useState<SheetTab[]>([])
+  const [sheetTabsLoading, setSheetTabsLoading] = useState(false)
+  const [sheetTabsError, setSheetTabsError] = useState<string | null>(null)
+  const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set())
 
   const readyCount = useMemo(
     () => projects.filter((p) => syncStates[p.code]?.status === "ok").length,
@@ -115,15 +134,17 @@ export function ImportCenter() {
     )
   }
 
-  async function handleSync(projectCode?: string) {
-    const key = projectCode ?? "ALL"
+  // table: tên bảng DB đích (đã map từ tên tab). displayLabel: hiển thị cho log/UI.
+  async function handleSync(projectCode?: string, table?: string, displayLabel?: string) {
+    const key = table ? `${projectCode}::${table}` : projectCode ?? "ALL"
     setRunningKey(key)
     setSyncStates((s) => ({ ...s, [key]: { status: "syncing" } }))
 
     try {
-      const { synced_at, results } = await runSync(projectCode)
+      const { synced_at, results } = await runSync(projectCode, table)
       const hasError = results.some((r) => r.errorMessage)
-      const label = projectCode ? projects.find((p) => p.code === projectCode)?.label ?? projectCode : "Tất cả project"
+      const baseLabel = projectCode ? projects.find((p) => p.code === projectCode)?.label ?? projectCode : "Tất cả project"
+      const label = displayLabel ? `${baseLabel} · ${displayLabel}` : baseLabel
 
       setSyncStates((s) => ({
         ...s,
@@ -139,7 +160,8 @@ export function ImportCenter() {
       }
     } catch (e: any) {
       setSyncStates((s) => ({ ...s, [key]: { status: "error" } }))
-      addLog(projectCode ?? "Tất cả project", false, e.message ?? "Lỗi không xác định")
+      const baseLabel = projectCode ? projects.find((p) => p.code === projectCode)?.label ?? projectCode : "Tất cả project"
+      addLog(displayLabel ? `${baseLabel} · ${displayLabel}` : baseLabel, false, e.message ?? "Lỗi không xác định")
     } finally {
       setRunningKey(null)
     }
@@ -178,6 +200,55 @@ export function ImportCenter() {
     }
   }
 
+  // ---- Mở modal chọn sheet ----
+  async function openSheetPicker(p: DbProject) {
+    setSheetPickerProject(p)
+    setSheetTabs([])
+    setSelectedTabs(new Set())
+    setSheetTabsError(null)
+    setSheetTabsLoading(true)
+    try {
+      const tabs = await fetchSheetTabs(p.code)
+      setSheetTabs(tabs)
+    } catch (e: any) {
+      setSheetTabsError(e.message)
+    } finally {
+      setSheetTabsLoading(false)
+    }
+  }
+
+  function closeSheetPicker() {
+    if (runningKey) return
+    setSheetPickerProject(null)
+  }
+
+  function toggleTab(title: string) {
+    setSelectedTabs((prev) => {
+      const next = new Set(prev)
+      if (next.has(title)) next.delete(title)
+      else next.add(title)
+      return next
+    })
+  }
+
+  // Sync lần lượt từng tab đã chọn — mỗi tab được map sang table thật rồi
+  // gọi /api/sync?table=... (API cũ, không cần thay đổi backend)
+  async function handleSyncSelectedTabs() {
+    if (!sheetPickerProject) return
+    const tabs = [...selectedTabs]
+    if (tabs.length === 0) return
+
+    for (const tab of tabs) {
+      const table = tableForSheetTab(tab)
+      if (!table) {
+        addLog(`${sheetPickerProject.label} · ${tab}`, false, `Không xác định được bảng DB tương ứng với tab "${tab}".`)
+        continue
+      }
+      await handleSync(sheetPickerProject.code, table, tab)
+    }
+    closeSheetPicker()
+  }
+
   return (
     <>
       <div className="hero import-hero">
@@ -186,7 +257,7 @@ export function ImportCenter() {
             <DatabaseZap size={13} /> Sync data center
           </span>
           <h2>Đồng bộ dữ liệu từ Google Sheet vào Rocket Performance.</h2>
-          <p>Mỗi project đã được kết nối 1 Google Sheet. Bấm "Sync now" để lấy dữ liệu mới nhất, hoặc thêm project mới bằng URL Sheet.</p>
+          <p>Mỗi project đã được kết nối 1 Google Sheet. Bấm "Sync now" để lấy toàn bộ, hoặc "Chọn sheet" để sync riêng từng tab.</p>
         </div>
         <div className="hero-badge">
           <b>{readyCount}/{projects.length || 0}</b>
@@ -236,11 +307,14 @@ export function ImportCenter() {
               <div className="upload-body">
                 <small>{p.code}</small>
                 <h3>{p.label}</h3>
-                <p>Sync riêng project này từ Google Sheet đã kết nối.</p>
+                <p>Sync toàn bộ hoặc chọn riêng tab muốn đồng bộ.</p>
               </div>
               <div className="source-actions">
                 <button type="button" className="sheet-button" onClick={() => handleSync(p.code)} disabled={!!runningKey}>
                   <RefreshCw size={15} /> Sync now
+                </button>
+                <button type="button" className="sheet-button" onClick={() => openSheetPicker(p)} disabled={!!runningKey}>
+                  <ListChecks size={15} /> Chọn sheet
                 </button>
               </div>
               {isRunning && <SyncProgressBar elapsedMs={elapsedMs} />}
@@ -368,6 +442,78 @@ export function ImportCenter() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {sheetPickerProject && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={closeSheetPicker}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <small>Chọn sheet để sync</small>
+                <h3>{sheetPickerProject.label}</h3>
+              </div>
+              <button type="button" className="icon-btn" aria-label="Đóng" onClick={closeSheetPicker} disabled={!!runningKey}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: "0 4px" }}>
+              {sheetTabsLoading && (
+                <div className="notice"><Loader2 size={16} className="spin" /><div><b>Đang tải danh sách sheet…</b></div></div>
+              )}
+              {sheetTabsError && (
+                <div className="notice error"><XCircle size={16} /><div><b>Lỗi</b><p>{sheetTabsError}</p></div></div>
+              )}
+
+              {!sheetTabsLoading && !sheetTabsError && sheetTabs.length === 0 && (
+                <div className="empty-log">Không tìm thấy sheet nào trong file này.</div>
+              )}
+
+              {!sheetTabsLoading && sheetTabs.length > 0 && (
+                <div className="sheet-tab-list">
+                  {sheetTabs.map((tab) => {
+                    const table = tableForSheetTab(tab.title)
+                    const key = `${sheetPickerProject.code}::${table ?? tab.title}`
+                    const isRunning = runningKey === key
+                    const st = syncStates[key]
+                    return (
+                      <label key={tab.title} className={`sheet-tab-row ${!table ? "disabled" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={selectedTabs.has(tab.title)}
+                          onChange={() => toggleTab(tab.title)}
+                          disabled={!!runningKey || !table}
+                        />
+                        <SheetIcon size={15} />
+                        <span className="sheet-tab-name">{tab.title}</span>
+                        {!table && <span className="sheet-tab-nomap" title="Chưa map được bảng DB tương ứng">Chưa hỗ trợ</span>}
+                        {tab.rowCount != null && <span className="sheet-tab-rows">{tab.rowCount} dòng</span>}
+                        {isRunning && <Loader2 size={14} className="spin" />}
+                        {!isRunning && st?.status === "ok" && <CheckCircle2 size={14} className="ok-icon" />}
+                        {!isRunning && st?.status === "error" && <XCircle size={14} className="error-icon" />}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions full" style={{ marginTop: 16 }}>
+              <button type="button" className="ghost-button" onClick={closeSheetPicker} disabled={!!runningKey}>
+                Đóng
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={selectedTabs.size === 0 || !!runningKey}
+                onClick={handleSyncSelectedTabs}
+              >
+                {runningKey ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                {runningKey ? "Đang sync..." : `Sync ${selectedTabs.size || ""} sheet đã chọn`}
+              </button>
+            </div>
           </div>
         </div>
       )}
