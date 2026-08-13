@@ -30,10 +30,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const auth = new google.auth.GoogleAuth({
-      credentials: {
+        credentials: {
         client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-        private_key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      },
+        private_key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY
+            ?.replace(/\\n/g, '\n')
+            ?.replace(/"/g, ''), // Removes any rogue double quotes
+        },
       scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
     });
     const sheets = google.sheets({ version: 'v4', auth });
