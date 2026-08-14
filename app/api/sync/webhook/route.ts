@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   if (secret !== process.env.SHEET_WEBHOOK_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-
+ 
   const body = await request.json().catch(() => ({}));
   const { sheet_id, tab_name, rows } = body as {
     sheet_id?: string;
