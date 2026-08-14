@@ -50,6 +50,14 @@ export function ProjectsPage({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pendingForceDeleteId, setPendingForceDeleteId] = useState<string | null>(null)
 
+  // --- STATE CHO SHEET SOURCES PHỤ ---
+  const [sourceProject, setSourceProject] = useState<Project | null>(null)
+  const [sheetSources, setSheetSources] = useState<{ id: string; source_type: string; sheet_url: string }[]>([])
+  const [sourcesLoading, setSourcesLoading] = useState(false)
+  const [sourceError, setSourceError] = useState<string | null>(null)
+  const [addSourceLoading, setAddSourceLoading] = useState(false)
+  // -----------------------------------
+
   const activeProject = projects.find((p) => p.id === activeId)
 
   const isEditing = editingProject !== null
@@ -108,7 +116,6 @@ export function ProjectsPage({
       await onDelete(p.id, false)
     } catch (e: any) {
       const msg: string = e.message ?? "Không xóa được project"
-      // API trả lỗi 409 kèm gợi ý force=true khi project còn data
       if (msg.includes("còn") && msg.includes("dữ liệu")) {
         setPendingForceDeleteId(p.id)
         setDeleteError(msg)
@@ -130,6 +137,58 @@ export function ProjectsPage({
       setDeleteError(e.message ?? "Không xóa được project")
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  // --- HÀM XỬ LÝ SHEET SOURCES PHỤ ---
+  async function handleOpenSources(p: Project) {
+    setSourceProject(p)
+    setSourcesLoading(true)
+    setSourceError(null)
+    try {
+      const res = await fetch(`/api/projects/sheet-sources?project_code=${encodeURIComponent(p.code)}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      setSheetSources(json.sources ?? [])
+    } catch (e: any) {
+      setSourceError(e.message ?? "Lỗi khi tải danh sách nguồn")
+    } finally {
+      setSourcesLoading(false)
+    }
+  }
+
+  async function handleAddSource(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!sourceProject) return
+    
+    setAddSourceLoading(true)
+    setSourceError(null)
+    
+    const form = new FormData(e.currentTarget)
+    const payload = {
+      project_code: sourceProject.code,
+      source_type: String(form.get("source_type")),
+      url: String(form.get("url"))
+    }
+    
+    try {
+      const res = await fetch(`/api/projects/sheet-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      
+      // Load lại list ngay sau khi add thành công
+      await handleOpenSources(sourceProject)
+      
+      // Clear form input
+      e.currentTarget.reset()
+    } catch (e: any) {
+      setSourceError(e.message ?? "Không thêm được file Sheet")
+    } finally {
+      setAddSourceLoading(false)
     }
   }
 
@@ -216,6 +275,15 @@ export function ProjectsPage({
                 <button
                   type="button"
                   className="icon-btn"
+                  aria-label={`Nguồn dữ liệu ${p.name}`}
+                  title="Quản lý Nguồn Google Sheet phụ"
+                  onClick={() => handleOpenSources(p)}
+                >
+                  <Link2 size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
                   aria-label={`Sửa ${p.name}`}
                   onClick={() => setEditingProject(p)}
                 >
@@ -249,6 +317,7 @@ export function ProjectsPage({
         })}
       </div>
 
+      {/* MODAL EDIT / CREATE PROJECT */}
       {modalOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={closeModal}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -274,7 +343,7 @@ export function ProjectsPage({
                     <input name="projectCode" required placeholder="VD: SMECTA2026" style={{ textTransform: "uppercase" }} />
                   </label>
                   <label className="full">
-                    <span>Google Sheet URL *</span>
+                    <span>Google Sheet URL (Main)*</span>
                     <input name="sheetUrl" type="url" required placeholder="https://docs.google.com/spreadsheets/d/.../edit" />
                   </label>
                 </>
@@ -339,6 +408,80 @@ export function ProjectsPage({
                 <button type="submit" className="primary-button" disabled={submitting}>
                   {submitting ? <Loader2 size={15} className="spin" /> : isEditing ? <Pencil size={15} /> : <Plus size={15} />}
                   {submitting ? "Đang lưu..." : isEditing ? "Lưu thay đổi" : "Tạo và mở project"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL QUẢN LÝ NGUỒN DỮ LIỆU PHỤ */}
+      {sourceProject && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => !addSourceLoading && setSourceProject(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <small>Sheet Sources</small>
+                <h3>Nguồn dữ liệu phụ · {sourceProject.code}</h3>
+              </div>
+              <button type="button" className="icon-btn" aria-label="Đóng" onClick={() => setSourceProject(null)} disabled={addSourceLoading}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: "0 4px 16px" }}>
+              {sourcesLoading ? (
+                <div className="notice"><Loader2 size={16} className="spin" /><div><b>Đang tải danh sách nguồn...</b></div></div>
+              ) : sheetSources.length === 0 ? (
+                <div className="empty-log">Project này chưa có nguồn dữ liệu phụ nào.</div>
+              ) : (
+                <div className="format-list">
+                  {sheetSources.map((s) => (
+                    <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+                      <b style={{ textTransform: "capitalize" }}>
+                        {s.source_type.replace(/_/g, " ")}
+                      </b>
+                      <a href={s.sheet_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, wordBreak: 'break-all', color: 'var(--blue)' }}>
+                        {s.sheet_url}
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form className="project-form" onSubmit={handleAddSource} style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+              <div className="full">
+                <h4 style={{ margin: "0 0 4px", fontSize: 14 }}>Thêm Google Sheet khác</h4>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>Gắn các file chạy demographic của riêng SEM / Facebook vào project này.</p>
+              </div>
+              
+              <label>
+                <span>Loại dữ liệu *</span>
+                <select name="source_type" required>
+                  <option value="demographic_facebook">Demographic Facebook</option>
+                  <option value="demographic_sem">Demographic SEM</option>
+                </select>
+              </label>
+              
+              <label className="full">
+                <span>Google Sheet URL *</span>
+                <input name="url" type="url" required placeholder="https://docs.google.com/spreadsheets/d/..." />
+              </label>
+
+              {sourceError && (
+                <div className="full">
+                  <div className="upload-status error">{sourceError}</div>
+                </div>
+              )}
+
+              <div className="modal-actions full">
+                <button type="button" className="ghost-button" onClick={() => setSourceProject(null)} disabled={addSourceLoading}>
+                  Đóng
+                </button>
+                <button type="submit" className="primary-button" disabled={addSourceLoading}>
+                  {addSourceLoading ? <Loader2 size={15} className="spin" /> : <Plus size={15} />}
+                  {addSourceLoading ? "Đang liên kết..." : "Thêm file"}
                 </button>
               </div>
             </form>
