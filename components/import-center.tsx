@@ -20,6 +20,15 @@ type DbProject = { code: string; label: string; sheetId?: string }
 
 type SheetTab = { title: string; sheetId?: number; rowCount?: number | null }
 
+// Thêm type mới để hứng cấu trúc trả về từ API backend đã cập nhật
+type SheetSource = {
+  sourceType: string
+  sourceName: string
+  spreadsheetId: string
+  tabs?: SheetTab[]
+  error?: string
+}
+
 type SyncResult = {
   project_code?: string
   table?: string
@@ -42,25 +51,16 @@ async function fetchProjects(): Promise<DbProject[]> {
   return json.projects ?? []
 }
 
-async function fetchSheetTabs(projectCode: string): Promise<SheetTab[]> {
+// Cập nhật hàm này để trả về mảng SheetSource thay vì SheetTab trực tiếp
+async function fetchSheetTabs(projectCode: string): Promise<SheetSource[]> {
   const res = await fetch(`/api/projects/sheets?project_code=${encodeURIComponent(projectCode)}`)
   const json = await res.json()
   if (!res.ok) throw new Error(json.error ?? "Không lấy được danh sách sheet")
-  return json.tabs ?? []
-}
-
-// Dùng lại đúng API sync cũ: /api/sync?project_code=...&table=...
-async function runSync(
-  projectCode?: string,
-  table?: string
-): Promise<{ synced_at: string; results: SyncResult[] }> {
-  const params = new URLSearchParams()
-  if (projectCode) params.set("project_code", projectCode)
-  if (table) params.set("table", table)
-  const res = await fetch(`/api/sync${params.toString() ? `?${params}` : ""}`)
-  const json = await res.json()
-  if (!res.ok && !json.results) throw new Error(json.error ?? "Sync thất bại")
-  return json
+  
+  // Hỗ trợ cả API cũ (trả về tabs) và mới (trả về results) để tránh lỗi crash
+  if (json.results) return json.results
+  if (json.tabs) return [{ sourceType: 'sync_project', sourceName: 'Main Sheet', spreadsheetId: 'unknown', tabs: json.tabs }]
+  return []
 }
 
 function SyncProgressBar({ elapsedMs }: { elapsedMs: number }) {
@@ -96,7 +96,8 @@ export function ImportCenter() {
 
   // ---- Chọn sheet để sync ----
   const [sheetPickerProject, setSheetPickerProject] = useState<DbProject | null>(null)
-  const [sheetTabs, setSheetTabs] = useState<SheetTab[]>([])
+  // Đổi state này thành SheetSource[]
+  const [sheetSources, setSheetSources] = useState<SheetSource[]>([])
   const [sheetTabsLoading, setSheetTabsLoading] = useState(false)
   const [sheetTabsError, setSheetTabsError] = useState<string | null>(null)
   const [selectedTabs, setSelectedTabs] = useState<Set<string>>(new Set())
@@ -134,21 +135,28 @@ export function ImportCenter() {
     )
   }
 
-  // table: tên bảng DB đích (đã map từ tên tab). displayLabel: hiển thị cho log/UI.
   async function handleSync(projectCode?: string, table?: string, displayLabel?: string) {
     const key = table ? `${projectCode}::${table}` : projectCode ?? "ALL"
     setRunningKey(key)
     setSyncStates((s) => ({ ...s, [key]: { status: "syncing" } }))
 
     try {
-      const { synced_at, results } = await runSync(projectCode, table)
+      const params = new URLSearchParams()
+      if (projectCode) params.set("project_code", projectCode)
+      if (table) params.set("table", table)
+      const res = await fetch(`/api/sync${params.toString() ? `?${params}` : ""}`)
+      const json = await res.json()
+      
+      if (!res.ok && !json.results) throw new Error(json.error ?? "Sync thất bại")
+        
+      const results: SyncResult[] = json.results ?? []
       const hasError = results.some((r) => r.errorMessage)
       const baseLabel = projectCode ? projects.find((p) => p.code === projectCode)?.label ?? projectCode : "Tất cả project"
       const label = displayLabel ? `${baseLabel} · ${displayLabel}` : baseLabel
 
       setSyncStates((s) => ({
         ...s,
-        [key]: { status: hasError ? "error" : "ok", lastSyncedAt: synced_at, results },
+        [key]: { status: hasError ? "error" : "ok", lastSyncedAt: json.synced_at, results },
       }))
 
       if (hasError) {
@@ -203,13 +211,13 @@ export function ImportCenter() {
   // ---- Mở modal chọn sheet ----
   async function openSheetPicker(p: DbProject) {
     setSheetPickerProject(p)
-    setSheetTabs([])
+    setSheetSources([])
     setSelectedTabs(new Set())
     setSheetTabsError(null)
     setSheetTabsLoading(true)
     try {
-      const tabs = await fetchSheetTabs(p.code)
-      setSheetTabs(tabs)
+      const sources = await fetchSheetTabs(p.code)
+      setSheetSources(sources)
     } catch (e: any) {
       setSheetTabsError(e.message)
     } finally {
@@ -231,8 +239,6 @@ export function ImportCenter() {
     })
   }
 
-  // Sync lần lượt từng tab đã chọn — mỗi tab được map sang table thật rồi
-  // gọi /api/sync?table=... (API cũ, không cần thay đổi backend)
   async function handleSyncSelectedTabs() {
     if (!sheetPickerProject) return
     const tabs = [...selectedTabs]
@@ -382,7 +388,7 @@ export function ImportCenter() {
               (st.results ?? []).map((r, i) => (
                 <div key={`${key}-${i}`}>
                   <b>
-                    {r.project_code ?? key} · {r.table ?? "—"}
+                    {r.project_code ?? key.split('::')[0]} · {r.table ?? "—"}
                   </b>
                   <code>
                     {r.errorMessage ? r.errorMessage : `${r.rowCount ?? "?"} dòng — OK`}
@@ -467,35 +473,56 @@ export function ImportCenter() {
                 <div className="notice error"><XCircle size={16} /><div><b>Lỗi</b><p>{sheetTabsError}</p></div></div>
               )}
 
-              {!sheetTabsLoading && !sheetTabsError && sheetTabs.length === 0 && (
+              {!sheetTabsLoading && !sheetTabsError && sheetSources.length === 0 && (
                 <div className="empty-log">Không tìm thấy sheet nào trong file này.</div>
               )}
 
-              {!sheetTabsLoading && sheetTabs.length > 0 && (
-                <div className="sheet-tab-list">
-                  {sheetTabs.map((tab) => {
-                    const table = tableForSheetTab(tab.title)
-                    const key = `${sheetPickerProject.code}::${table ?? tab.title}`
-                    const isRunning = runningKey === key
-                    const st = syncStates[key]
-                    return (
-                      <label key={tab.title} className={`sheet-tab-row ${!table ? "disabled" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={selectedTabs.has(tab.title)}
-                          onChange={() => toggleTab(tab.title)}
-                          disabled={!!runningKey || !table}
-                        />
-                        <SheetIcon size={15} />
-                        <span className="sheet-tab-name">{tab.title}</span>
-                        {!table && <span className="sheet-tab-nomap" title="Chưa map được bảng DB tương ứng">Chưa hỗ trợ</span>}
-                        {tab.rowCount != null && <span className="sheet-tab-rows">{tab.rowCount} dòng</span>}
-                        {isRunning && <Loader2 size={14} className="spin" />}
-                        {!isRunning && st?.status === "ok" && <CheckCircle2 size={14} className="ok-icon" />}
-                        {!isRunning && st?.status === "error" && <XCircle size={14} className="error-icon" />}
-                      </label>
-                    )
-                  })}
+              {!sheetTabsLoading && sheetSources.length > 0 && (
+                <div className="sheet-source-list" style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '10px' }}>
+                  {sheetSources.map((source, idx) => (
+                    <div key={source.spreadsheetId || idx} className="sheet-source-group">
+                      <div style={{ marginBottom: '8px', fontSize: '13px', color: '#666', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
+                        <span>{source.sourceName}</span>
+                        <span style={{ fontWeight: 400, opacity: 0.7 }}>{source.sourceType}</span>
+                      </div>
+                      
+                      {source.error ? (
+                        <div className="notice error" style={{ padding: '8px' }}>
+                          <XCircle size={14} /> <span style={{ fontSize: '12px' }}>{source.error}</span>
+                        </div>
+                      ) : (
+                        <div className="sheet-tab-list">
+                          {(source.tabs || []).map((tab) => {
+                            const table = tableForSheetTab(tab.title)
+                            const key = `${sheetPickerProject.code}::${table ?? tab.title}`
+                            const isRunning = runningKey === key
+                            const st = syncStates[key]
+                            
+                            return (
+                              <label key={tab.title} className={`sheet-tab-row ${!table ? "disabled" : ""}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTabs.has(tab.title)}
+                                  onChange={() => toggleTab(tab.title)}
+                                  disabled={!!runningKey || !table}
+                                />
+                                <SheetIcon size={15} />
+                                <span className="sheet-tab-name">{tab.title}</span>
+                                {!table && <span className="sheet-tab-nomap" title="Chưa map được bảng DB tương ứng">Chưa hỗ trợ</span>}
+                                {tab.rowCount != null && <span className="sheet-tab-rows">{tab.rowCount} dòng</span>}
+                                {isRunning && <Loader2 size={14} className="spin" />}
+                                {!isRunning && st?.status === "ok" && <CheckCircle2 size={14} className="ok-icon" />}
+                                {!isRunning && st?.status === "error" && <XCircle size={14} className="error-icon" />}
+                              </label>
+                            )
+                          })}
+                          {(!source.tabs || source.tabs.length === 0) && (
+                            <div className="empty-log" style={{ padding: '8px', fontSize: '12px' }}>Sheet trống.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
