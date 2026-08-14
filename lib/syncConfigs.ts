@@ -929,3 +929,31 @@ function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig
     },
   };
 }
+
+export async function findConfigForSheetTab(
+  sheetId: string,
+  tabName: string
+): Promise<{ projectCode: string; config: RowSyncConfig } | null> {
+  // Lấy tất cả project active để dò — với hệ thống nhỏ (vài project) việc này đủ nhanh
+  const projectsRes = await pool.query(`SELECT project_code FROM ad_projects`);
+
+  for (const { project_code } of projectsRes.rows) {
+    const configs = await getAllRawConfigsForProject(project_code);
+    const found = configs.find((c) => c.tabName === tabName);
+    if (!found) continue;
+
+    // Xác nhận đúng sheet_id (main sheet hoặc sheetIdOverride)
+    const mainSheetRes = await pool.query(
+      `SELECT sheet_id FROM sync_projects WHERE project_code = $1`,
+      [project_code]
+    );
+    const mainSheetId = mainSheetRes.rows[0]?.sheet_id;
+    const effectiveSheetId = found.sheetIdOverride ?? mainSheetId;
+
+    if (effectiveSheetId === sheetId) {
+      return { projectCode: project_code, config: found };
+    }
+  }
+
+  return null;
+}
