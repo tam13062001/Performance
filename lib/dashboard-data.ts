@@ -464,3 +464,61 @@ export async function loadExecutionRows(
   if (level === "campaign") return aggregateBy(rows, (r) => r.name ?? "—");
   return aggregateBy(rows.filter((r) => r.adGroup), (r) => `${r.name}::${r.adGroup}`).map((r) => ({ ...r, name: r.adGroup ?? r.name }));
 }
+
+// ---------- Demographic (age/gender/region) ----------
+export type DemographicRow = {
+  id: string;
+  project_id: string;
+  period_month: string;
+  platform: "google" | "meta";
+  breakdown_type: "age" | "gender" | "region" | "campaign" | "keyword"; // ⬅️ thêm 2 loại mới
+  breakdown_value: string;
+  campaign_name: string | null;
+  impressions: number;
+  reach: number | null;
+  clicks: number;
+  spend: number | null;
+  ctr: number;
+};
+
+export async function loadDemographics(
+  projectCode: string,
+  periodMonth: string,
+  breakdownType: "age" | "gender" | "region" | "campaign" | "keyword" // ⬅️ thêm
+): Promise<DemographicRow[]> {
+  const all = await fetchTable<DemographicRow>("ad_demographic_metrics", projectCode);
+  return all.filter((r) => r.period_month === periodMonth && r.breakdown_type === breakdownType);
+}
+
+export type DemographicBreakdown = {
+  label: string;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  spend: number;
+  ctr: number;
+  googleImpressions: number;
+  metaImpressions: number;
+};
+
+export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {
+  const map = new Map<string, DemographicBreakdown>();
+  for (const r of rows) {
+    const key = r.breakdown_value;
+    const item =
+      map.get(key) ??
+      ({ label: key, impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, googleImpressions: 0, metaImpressions: 0 } as DemographicBreakdown);
+
+    item.impressions += r.impressions || 0;
+    item.reach += r.reach || 0;
+    item.clicks += r.clicks || 0;
+    item.spend += r.spend || 0;
+    if (r.platform === "google") item.googleImpressions += r.impressions || 0;
+    else item.metaImpressions += r.impressions || 0;
+
+    map.set(key, item);
+  }
+  return [...map.values()]
+    .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
+    .sort((a, b) => b.impressions - a.impressions);
+}

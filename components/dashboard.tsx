@@ -30,14 +30,16 @@ import {
   performanceScore,
   planSummary,
   fillMissingDeliveryStatus,
+  loadDemographics,          
+  aggregateDemographic,      
   type DataStatusRow,
   type DeliveryStatusRow,
   type ReportRow,
   type UnitCostPlanRow,
   type BusinessDimension,
   type Verdict,
+  type DemographicRow,       
 } from "@/lib/dashboard-data";
-
 // project_code thật trong DB
 type DbProject = { code: string; label: string; sheetId?: string };
 
@@ -594,13 +596,297 @@ function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { pr
       {(level === "campaign" || level === "adgroup") && (
         <ExecutionSection projectCode={projectCode} platform={platform} level={level as "campaign" | "adgroup"} />
       )}
-      {level === "audience" && <NotAvailableNotice what="Audience demographic (age/gender/region)" />}
-      {level === "keywords" && <NotAvailableNotice what="Keyword-level reporting" />}
+      {level === "audience" && (
+        <PlatformAudienceSection projectCode={projectCode} periodMonth={periodMonth} platform={platform} />
+      )}
+      {level === "keywords" && isGoogle && <KeywordsSection projectCode={projectCode} />}
       {level === "creative" && <NotAvailableNotice what="Creative type breakdown" />}
     </>
   );
 }
 
+/* ---------------- Platform-specific audience (dùng trong Google/Meta channel dashboard) ---------------- */
+function PlatformAudienceSection({
+  projectCode,
+  periodMonth,
+  platform,
+}: {
+  projectCode: string;
+  periodMonth: string;
+  platform: "Google" | "Meta";
+}) {
+  const [dim, setDim] = useState<"age" | "gender" | "region">("age");
+  const [rows, setRows] = useState<DemographicRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const platformKey = platform === "Google" ? "google" : "meta";
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    loadDemographics(projectCode, periodMonth, dim)
+      .then((r) => !cancelled && setRows(r.filter((x) => x.platform === platformKey)))
+      .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode, periodMonth, dim, platformKey]);
+
+  const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const label = demoTabs.find((t) => t.id === dim)?.label;
+
+  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
+  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+
+  return (
+    <>
+      <div className="page-toolbar">
+        <div className="tabs">
+          {demoTabs.map((t) => (
+            <button key={t.id} type="button" className={`tab ${dim === t.id ? "active" : ""}`} onClick={() => setDim(t.id)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid-2 two-thirds">
+        <article className="card">
+          <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label} · {platform}</h3></div></div>
+          <div className="chart-wrap large">
+            <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
+          </div>
+          <ChartInsights spec={{ title: `Impressions theo ${label} · ${platform}`, subject: `audience theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+        </article>
+        <article className="card">
+          <div className="card-head"><div><small>Rate</small><h3>CTR theo {label} · {platform}</h3></div></div>
+          <div className="chart-wrap large">
+            <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
+          </div>
+          <ChartInsights spec={{ title: `CTR theo ${label} · ${platform}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} />
+        </article>
+      </div>
+
+      <article className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{label}</th>
+                <th className="right">Impressions</th>
+                <th className="right">Reach</th>
+                <th className="right">Clicks</th>
+                <th className="right">CTR</th>
+                <th className="right">Spend</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((b) => (
+                <tr key={b.label}>
+                  <td>{b.label}</td>
+                  <td className="right">{num(b.impressions)}</td>
+                  <td className="right">{num(b.reach)}</td>
+                  <td className="right">{num(b.clicks)}</td>
+                  <td className="right">{pct(b.ctr)}</td>
+                  <td className="right">{vnd(b.spend)}</td>
+                </tr>
+              ))}
+              {pagedRows.length === 0 && (
+                <tr><td colSpan={6}>Chưa có data audience cho {platform} ở kỳ này.</td></tr>
+              )}
+            </tbody>
+          </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </div>
+      </article>
+    </>
+  );
+}
+
+/* ---------------- Keywords (Google only, breakdown_type='keyword') ---------------- */
+function KeywordsSection({ projectCode }: { projectCode: string }) {
+  const [rows, setRows] = useState<DemographicRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    // Data mtd_search_keyword không có period_month rõ ràng theo tháng cụ thể trong sheet
+    // -> sync lưu theo tháng hiện tại lúc chạy sync, nên load 'MTD hiện tại' bằng cách
+    // không filter theo periodMonth truyền vào page (khác AudiencePage) — lấy toàn bộ rồi gộp.
+    loadDemographics(projectCode, currentMonthAbbrClient(), "keyword")
+      .then((r) => !cancelled && setRows(r.filter((x) => x.platform === "google")))
+      .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode]);
+
+  const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+
+  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
+  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+
+  return (
+    <>
+      <article className="card">
+        <div className="card-head"><div><small>Search terms</small><h3>Top keyword theo Clicks</h3></div></div>
+        <div className="chart-wrap large">
+          <VolumeBarChart labels={breakdown.slice(0, 15).map((b) => b.label)} impressions={breakdown.slice(0, 15).map((b) => b.impressions)} />
+        </div>
+        <ChartInsights spec={{ title: "Top keyword theo Clicks", subject: "hiệu suất search term", labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+      </article>
+
+      <article className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Search term</th>
+                <th className="right">Impressions</th>
+                <th className="right">Clicks</th>
+                <th className="right">CTR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((b) => (
+                <tr key={b.label}>
+                  <td className="mono">{b.label}</td>
+                  <td className="right">{num(b.impressions)}</td>
+                  <td className="right">{num(b.clicks)}</td>
+                  <td className="right">{pct(b.ctr)}</td>
+                </tr>
+              ))}
+              {pagedRows.length === 0 && <tr><td colSpan={4}>Chưa có data keyword.</td></tr>}
+            </tbody>
+          </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </div>
+      </article>
+    </>
+  );
+}
+
+function currentMonthAbbrClient(): string {
+  const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  return MONTHS[new Date().getMonth()];
+}
+
+/* ---------------- Audience (demographic) ---------------- */
+const demoTabs: { id: "age" | "gender" | "region"; label: string }[] = [
+  { id: "age", label: "Độ tuổi" },
+  { id: "gender", label: "Giới tính" },
+  { id: "region", label: "Khu vực" },
+];
+
+function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
+  const [dim, setDim] = useState<"age" | "gender" | "region">("age");
+  const [rows, setRows] = useState<DemographicRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    loadDemographics(projectCode, periodMonth, dim)
+      .then((r) => !cancelled && setRows(r))
+      .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode, periodMonth, dim]);
+
+  const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const label = demoTabs.find((t) => t.id === dim)?.label;
+
+  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
+  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+
+  return (
+    <>
+      <div className="page-toolbar">
+        <div className="tabs">
+          {demoTabs.map((t) => (
+            <button key={t.id} type="button" className={`tab ${dim === t.id ? "active" : ""}`} onClick={() => setDim(t.id)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid-2 two-thirds">
+        <article className="card">
+          <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label}</h3></div></div>
+          <div className="chart-wrap large">
+            <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
+          </div>
+          <ChartInsights spec={{ title: `Impressions theo ${label}`, subject: `audience theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+        </article>
+        <article className="card">
+          <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
+          <div className="chart-wrap large">
+            <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
+          </div>
+          <ChartInsights spec={{ title: `CTR theo ${label}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} />
+        </article>
+      </div>
+
+      <div className="grid-2">
+        <article className="card">
+          <div className="card-head">
+            <div><small>Channel contribution</small><h3>Google vs Meta theo {label}</h3></div>
+          </div>
+          <div className="chart-wrap large" style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+            <ChannelDoughnut
+              google={breakdown.reduce((s, b) => s + b.googleImpressions, 0)}
+              meta={breakdown.reduce((s, b) => s + b.metaImpressions, 0)}
+            />
+          </div>
+        </article>
+
+        <article className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{label}</th>
+                  <th className="right">Impressions</th>
+                  <th className="right">Reach</th>
+                  <th className="right">Clicks</th>
+                  <th className="right">CTR</th>
+                  <th className="right">Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedRows.map((b) => (
+                  <tr key={b.label}>
+                    <td>{b.label}</td>
+                    <td className="right">{num(b.impressions)}</td>
+                    <td className="right">{num(b.reach)}</td>
+                    <td className="right">{num(b.clicks)}</td>
+                    <td className="right">{pct(b.ctr)}</td>
+                    <td className="right">{vnd(b.spend)}</td>
+                  </tr>
+                ))}
+                {pagedRows.length === 0 && (
+                  <tr><td colSpan={6}>Chưa có data cho kỳ này.</td></tr>
+                )}
+              </tbody>
+            </table>
+            <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+          </div>
+        </article>
+      </div>
+    </>
+  );
+}
 /* ---------------- Plan page ---------------- */
 function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const { loading, planRows } = usePlanData(projectCode, periodMonth);
@@ -749,7 +1035,7 @@ export function Dashboard() {
           )}
           {page === "overview" && periodMonth && dbProjectCode && <OverviewPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
           {page === "business" && periodMonth && dbProjectCode && <BusinessPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
-          {page === "audience" && <NotAvailableNotice what="Audience demographic (age/gender/region)" />}
+          {page === "audience" && dbProjectCode && periodMonth && <AudiencePage projectCode={dbProjectCode} periodMonth={periodMonth} />}
           {page === "google" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
           {page === "meta" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
           {page === "taxonomy" && periodMonth && dbProjectCode && <PlanPage projectCode={dbProjectCode} periodMonth={periodMonth} />}

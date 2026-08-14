@@ -15,10 +15,10 @@ export interface SyncResult {
 export interface RowSyncConfig {
   table: string;
   tabName: string;
-  /** Phải khớp CHÍNH XÁC với biểu thức trong unique index đã tạo ở migration */
   conflictColumns: string;
-  /** Trả về map cột->giá trị để insert, hoặc null nếu dòng không hợp lệ/rỗng (bỏ qua, không tính lỗi) */
   parseRow: (row: unknown[]) => Record<string, unknown> | null;
+  /** Nếu có, đọc từ sheet này thay vì spreadsheetId chính của project (dùng cho nguồn phụ như demographic) */
+  sheetIdOverride?: string;
 }
 
 export async function syncRawSheet(
@@ -29,12 +29,15 @@ export async function syncRawSheet(
   const client = await pool.connect();
   let batchId: number | null = null;
 
+  // ⬅️ Dùng sheetIdOverride nếu config có chỉ định, mặc định là spreadsheetId chính
+  const effectiveSheetId = config.sheetIdOverride ?? spreadsheetId;
+
   try {
     const projectRes = await client.query(`SELECT id FROM ad_projects WHERE project_code = $1`, [projectCode]);
     if (projectRes.rows.length === 0) throw new Error(`Không tìm thấy project_code "${projectCode}"`);
     const projectId = projectRes.rows[0].id;
 
-    const rawRows = await getSheetValues(spreadsheetId, config.tabName);
+    const rawRows = await getSheetValues(effectiveSheetId, config.tabName); // ⬅️ đổi spreadsheetId -> effectiveSheetId
     const dataRows = rawRows.slice(1).filter((r) => r.length > 0);
 
     if (dataRows.length === 0) {
@@ -44,7 +47,7 @@ export async function syncRawSheet(
     const batchRes = await client.query(
       `INSERT INTO ad_import_batches (project_id, source_file_name, source_sheet_name, status)
        VALUES ($1,$2,$3,'processing') RETURNING id`,
-      [projectId, spreadsheetId, config.tabName]
+      [projectId, effectiveSheetId, config.tabName] // ⬅️ log đúng sheet đã đọc, không log nhầm sheet chính
     );
     batchId = batchRes.rows[0].id;
 

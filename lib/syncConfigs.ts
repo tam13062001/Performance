@@ -1,5 +1,9 @@
 import { RowSyncConfig } from './syncEngine';
 import { parseSheetNumber, parseSheetDate } from './syncHelpers';
+// Thêm vào syncConfigs.ts (hoặc file riêng import vào), dùng chung pool như syncEngine.ts
+import { pool } from './db';
+
+
 
 const s = (v: unknown): string | null => (v !== null && v !== undefined && String(v).trim() !== '' ? String(v).trim() : null);
 const n = (v: unknown): number => parseSheetNumber(v);
@@ -697,7 +701,24 @@ function buildDeliveryStatusConfig(projectCode: string, periodType: 'YTD' | 'MTD
 }
 
 /** Trả về toàn bộ config cần chạy cho 1 project (đã tự chỉnh theo cấu trúc sheet riêng) */
-export function getAllRawConfigsForProject(projectCode: string): RowSyncConfig[] {
+async function getDemographicSheetIds(projectCode: string): Promise<{ sem?: string; facebook?: string }> {
+  const res = await pool.query(
+    `SELECT s.source_type, s.sheet_id
+     FROM ad_project_sheet_sources s
+     JOIN ad_projects p ON p.id = s.project_id
+     WHERE p.project_code = $1`,
+    [projectCode]
+  );
+
+  const result: { sem?: string; facebook?: string } = {};
+  for (const row of res.rows) {
+    if (row.source_type === 'demographic_sem') result.sem = row.sheet_id;
+    if (row.source_type === 'demographic_facebook') result.facebook = row.sheet_id;
+  }
+  return result;
+}
+
+export async function getAllRawConfigsForProject(projectCode: string): Promise<RowSyncConfig[]> {
   const isTanakan = projectCode === 'TANAKAN';
 
   const configs: RowSyncConfig[] = [
@@ -714,10 +735,6 @@ export function getAllRawConfigsForProject(projectCode: string): RowSyncConfig[]
     buildMbInpageConfig(projectCode),
   ];
 
-  // MMU chưa có sheet MTD_UNIT_COST_PLAN / MTD_DELIVERY_STATUS trong Google Sheet
-  // thật (không phải tab rỗng mà tab KHÔNG TỒN TẠI) -> gọi range này Google Sheets
-  // API trả lỗi "Unable to parse range" chứ không tự skip êm như tab rỗng.
-  // => chỉ thêm 2 config MTD này khi là Tanakan, tránh log lỗi giả mỗi lần sync.
   if (isTanakan) {
     configs.push(
       buildUnitCostPlanConfig(projectCode, 'MTD'),
@@ -725,7 +742,190 @@ export function getAllRawConfigsForProject(projectCode: string): RowSyncConfig[]
       buildReportConfig(projectCode, 'MTD'),
       buildDataConfig(projectCode, 'MTD'),
     );
+
+    const demoSheets = await getDemographicSheetIds(projectCode);
+
+    if (demoSheets.sem) {
+      (['age', 'gender', 'region'] as const).forEach((dim) => {
+        configs.push({ ...buildGoogleDemographicConfig(dim, 'YTD'), sheetIdOverride: demoSheets.sem });
+        configs.push({ ...buildGoogleDemographicConfig(dim, 'MTD'), sheetIdOverride: demoSheets.sem });
+      });
+      // ⬅️ mới: campaign + keyword report (chỉ có bản MTD trong file mẫu)
+      configs.push(buildGoogleSearchCampaignConfig(demoSheets.sem));
+      configs.push(buildGoogleSearchKeywordConfig(demoSheets.sem));
+    }
+    if (demoSheets.facebook) {
+      (['age', 'gender', 'region'] as const).forEach((dim) => {
+        configs.push({ ...buildMetaDemographicConfig(dim, 'YTD'), sheetIdOverride: demoSheets.facebook });
+        configs.push({ ...buildMetaDemographicConfig(dim, 'MTD'), sheetIdOverride: demoSheets.facebook });
+      });
+
+    }
   }
 
   return configs;
+}
+/* =========================================================
+ * DEMOGRAPHIC — Google/SEM (age, gender, region)
+ * ---------------------------------------------------------
+ * Sheet có 3 dòng preamble trước data (title, date-range, header cột),
+ * không có cột month riêng cho bản MTD -> period_month tính theo tháng
+ * hiện tại lúc sync (server time) đối với MTD, cố định 'YTD' cho bản YTD.
+ *
+ * Cột thực tế (đã verify từ file mẫu):
+ *   0 Campaign, 1 Age/Gender/Region (Matched), 2 Clicks, 3 Impr., 4 CTR
+ * ========================================================= */
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+function currentMonthAbbr(): string {
+  return MONTHS[new Date().getMonth()];
+}
+
+function buildGoogleDemographicConfig(
+  dimension: 'age' | 'gender' | 'region',
+  periodType: 'YTD' | 'MTD'
+): RowSyncConfig {
+  const tabName = periodType === 'YTD' ? `ytd_search_${dimension}` : `mtd_search_${dimension}`;
+  const periodMonth = periodType === 'YTD' ? 'YTD' : currentMonthAbbr();
+
+  return {
+    table: 'ad_demographic_metrics',
+    tabName,
+    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
+    parseRow: (row) => {
+      const campaignName = s(row[0]);
+      const breakdownValue = s(row[1]);
+      // Lọc bỏ 3 dòng preamble (title/date-range/header): các dòng đó
+      // không có breakdownValue hợp lệ hoặc row[2] chính là chữ "Clicks" (header).
+      if (!campaignName || !breakdownValue || row[2] === 'Clicks') return null;
+
+      return {
+        period_month: periodMonth,
+        platform: 'google',
+        campaign_name: campaignName,
+        breakdown_type: dimension,
+        breakdown_value: breakdownValue,
+        clicks: n(row[2]),
+        impressions: n(row[3]),
+        ctr: nOrNull(row[4]) !== null ? n(row[4]) * 100 : null,
+        reach: null,
+        spend: null,
+      };
+    },
+  };
+}
+
+/* =========================================================
+ * DEMOGRAPHIC — Meta/Facebook (age, gender, region)
+ * ---------------------------------------------------------
+ * Header thật ở row đầu, có date_start/date_stop MỖI DÒNG -> dùng
+ * trực tiếp để tính period_month chính xác, không cần đoán theo server time.
+ *
+ * Cột thực tế (đã verify từ file mẫu, theo tên header — vị trí index
+ * có thể lệch giữa các tab nên KHÔNG dùng số cột cố định ở đây; nếu
+ * engine chỉ truyền row dạng mảng theo index, cần map cứng index dưới
+ * đây khớp đúng thứ tự cột thật trong sheet của bạn):
+ *   ad_account_id, report_start_date, report_end_date, date_start, date_stop,
+ *   age|gender|region, campaign_name, adset_name, ad_name, objective,
+ *   spend, impressions, reach, clicks, ctr, cpc, cpm, frequency, ...
+ * ========================================================= */
+function buildMetaDemographicConfig(
+  dimension: 'age' | 'gender' | 'region',
+  periodType: 'YTD' | 'MTD'
+): RowSyncConfig {
+  const tabName = periodType === 'YTD' ? `ytd_${dimension}` : `mtd_${dimension}`;
+
+  return {
+    table: 'ad_demographic_metrics',
+    tabName,
+    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
+    parseRow: (row) => {
+      const dateStop = parseSheetDate(row[4]);
+      const campaignName = s(row[6]);
+      const breakdownValue = s(row[5]);
+      if (!dateStop || !campaignName || !breakdownValue) return null;
+
+      return {
+        period_month: periodType === 'YTD' ? 'YTD' : currentMonthAbbrFromDate(dateStop),
+        platform: 'meta',
+        campaign_name: campaignName,
+        breakdown_type: dimension,
+        breakdown_value: breakdownValue,
+        impressions: n(row[11]),
+        reach: n(row[12]),
+        clicks: n(row[13]),
+        spend: n(row[10]),
+        ctr: nOrNull(row[14]) !== null ? n(row[14]) * 100 : null,
+      };
+    },
+  };
+}
+
+function currentMonthAbbrFromDate(iso: string): string {
+  return MONTHS[new Date(iso).getMonth()];
+}
+
+
+/* =========================================================
+ * SEM mtd_search_campaign — report mức Ad (headline/description),
+ * chỉ lấy Campaign/Ad group/Clicks/Impr./CTR, lưu vào ad_demographic_metrics
+ * với breakdown_type='campaign' (tái dùng bảng đã có, không tạo bảng mới).
+ * Cột thật: 0 Campaign, 1 Ad group, ... 49 Clicks, 50 Impr., 51 CTR
+ * ========================================================= */
+function buildGoogleSearchCampaignConfig(sheetIdOverride?: string): RowSyncConfig {
+  return {
+    table: 'ad_demographic_metrics',
+    tabName: 'mtd_search_campaign',
+    sheetIdOverride,
+    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
+    parseRow: (row) => {
+      const campaignName = s(row[0]);
+      const adGroup = s(row[1]);
+      // 3 dòng preamble (title/date-range/header) bị loại vì row[49] không phải số ở các dòng đó
+      if (!campaignName || !adGroup || row[49] === 'Clicks') return null;
+
+      return {
+        period_month: currentMonthAbbr(),
+        platform: 'google',
+        campaign_name: campaignName,
+        breakdown_type: 'campaign',
+        breakdown_value: adGroup,
+        clicks: n(row[49]),
+        impressions: n(row[50]),
+        ctr: nOrNull(row[51]) !== null ? n(row[51]) * 100 : null,
+        reach: null,
+        spend: null,
+      };
+    },
+  };
+}
+
+/* =========================================================
+ * SEM mtd_search_keyword — report search term
+ * Cột thật: 0 Search term, 1 Ad group, 2 Clicks, 3 Impr., 4 CTR
+ * ========================================================= */
+function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig {
+  return {
+    table: 'ad_demographic_metrics',
+    tabName: 'mtd_search_keyword',
+    sheetIdOverride,
+    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
+    parseRow: (row) => {
+      const searchTerm = s(row[0]);
+      const adGroup = s(row[1]);
+      if (!searchTerm || row[2] === 'Clicks') return null;
+
+      return {
+        period_month: currentMonthAbbr(),
+        platform: 'google',
+        campaign_name: adGroup, // không có tên campaign ở tab này, dùng ad group thay thế
+        breakdown_type: 'keyword',
+        breakdown_value: searchTerm,
+        clicks: n(row[2]),
+        impressions: n(row[3]),
+        ctr: nOrNull(row[4]) !== null ? n(row[4]) * 100 : null,
+        reach: null,
+        spend: null,
+      };
+    },
+  };
 }

@@ -20,8 +20,41 @@ export const SHEET_TAB_TO_TABLE: Record<string, string> = {
   GDN_DATA: 'ad_raw_gdn_data',
   ZALO_DATA: 'ad_raw_zalo_data',
   DATE_SELECTION: 'ad_sheet_date_selection',
+
+
+  mtd_search_campaign: 'ad_demographic_metrics',
+  mtd_search_keyword: 'ad_demographic_metrics',
+  ytd_search_age: 'ad_demographic_metrics',
+  mtd_search_age: 'ad_demographic_metrics',
+  ytd_search_gender: 'ad_demographic_metrics',
+  mtd_search_gender: 'ad_demographic_metrics',
+  ytd_search_region: 'ad_demographic_metrics',
+  mtd_search_region: 'ad_demographic_metrics',
+
+  // Demographic — Meta
+  ytd_age: 'ad_demographic_metrics',
+  mtd_age: 'ad_demographic_metrics',
+  ytd_gender: 'ad_demographic_metrics',
+  mtd_gender: 'ad_demographic_metrics',
+  ytd_region: 'ad_demographic_metrics',
+  mtd_region: 'ad_demographic_metrics',
 };
 
 export function tableForSheetTab(tabTitle: string): string | null {
   return SHEET_TAB_TO_TABLE[tabTitle] ?? null;
 }
+
+export const DEMOGRAPHIC_TAB_META: Record<string, { platform: 'google' | 'meta'; dimension: 'age' | 'gender' | 'region'; period: 'YTD' | 'MTD' }> = {
+  ytd_search_age: { platform: 'google', dimension: 'age', period: 'YTD' },
+  mtd_search_age: { platform: 'google', dimension: 'age', period: 'MTD' },
+  ytd_search_gender: { platform: 'google', dimension: 'gender', period: 'YTD' },
+  mtd_search_gender: { platform: 'google', dimension: 'gender', period: 'MTD' },
+  ytd_search_region: { platform: 'google', dimension: 'region', period: 'YTD' },
+  mtd_search_region: { platform: 'google', dimension: 'region', period: 'MTD' },
+  ytd_age: { platform: 'meta', dimension: 'age', period: 'YTD' },
+  mtd_age: { platform: 'meta', dimension: 'age', period: 'MTD' },
+  ytd_gender: { platform: 'meta', dimension: 'gender', period: 'YTD' },
+  mtd_gender: { platform: 'meta', dimension: 'gender', period: 'MTD' },
+  ytd_region: { platform: 'meta', dimension: 'region', period: 'YTD' },
+  mtd_region: { platform: 'meta', dimension: 'region', period: 'MTD' },
+};
