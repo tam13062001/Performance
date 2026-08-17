@@ -151,21 +151,21 @@ function sum<T>(rows: T[], pick: (r: T) => number) {
 
 export function overviewKpis(data: DataStatusRow[]): KpiCard[] {
   if (data.length === 0) return [];
-  
+
   const imp = sum(data, (r) => r.impressions);
   const reach = sum(data, (r) => r.reach);
   const clicks = sum(data, (r) => r.clicks);
   const spend = sum(data, (r) => r.spend);
   const plannedQuantity = sum(data, (r) => r.planned_quantity);
   const actualDelivery = sum(data, (r) => r.actual_delivery);
-  
+
   const avgTimePassedPct = data.length > 0 ? sum(data, (r) => r.time_passed_pct) / data.length : 0;
-  
+
   const ctr = ctrOf(imp, clicks);
   const cpc = cpcOf(spend, clicks);
   const freq = freqOf(imp, reach);
   const deliveryPct = plannedQuantity > 0 ? (actualDelivery / plannedQuantity) * 100 : 0;
-  
+
   const spendPacing = data.length > 0 ? sum(data, r => r.cost_optimized_pct) / data.length : 0;
 
   return [
@@ -242,7 +242,7 @@ export function verdictFromStatus(deliveryStatus: string | null, costStatus: str
 
 export type CampaignDeliveryRow = {
   id: string;
-  label: string; 
+  label: string;
   channel: string;
   phase: string;
   region: string;
@@ -273,7 +273,6 @@ export function fillMissingDeliveryStatus(
     if (!looseMap.has(keyLoose(d))) looseMap.set(keyLoose(d), d);
   }
 
-  // DEBUG: log toàn bộ key phía delivery để đối chiếu
   if (typeof window !== "undefined") {
     console.debug("[fillMissingDeliveryStatus] delivery keys:", [...looseMap.keys()]);
   }
@@ -305,17 +304,17 @@ export function campaignDeliveryRows(data: DataStatusRow[]): CampaignDeliveryRow
   return data
     .map((r) => {
       const { verdict, raw } = verdictFromStatus(r.delivery_status ?? null, r.cost_status ?? null);
-      
+
       const upperChannel = (r.channel || "").toUpperCase();
-      const platform = ["SEM", "ADX", "YOUTUBE"].includes(upperChannel) 
-        ? "Google" 
-        : ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(upperChannel) 
-          ? "Meta" 
+      const platform = ["SEM", "ADX", "YOUTUBE"].includes(upperChannel)
+        ? "Google"
+        : ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(upperChannel)
+          ? "Meta"
           : r.channel;
 
       const phaseCap = r.phase ? r.phase.charAt(0).toUpperCase() + r.phase.slice(1) : "—";
       const region = r.region || "National";
-      
+
       return {
         id: r.id,
         label: `${platform} · ${phaseCap} · ${region}`,
@@ -471,7 +470,7 @@ export type DemographicRow = {
   project_id: string;
   period_month: string;
   platform: "google" | "meta";
-  breakdown_type: "age" | "gender" | "region" | "campaign" | "keyword"; // ⬅️ thêm 2 loại mới
+  breakdown_type: "age" | "gender" | "region" | "campaign" | "keyword";
   breakdown_value: string;
   campaign_name: string | null;
   impressions: number;
@@ -484,7 +483,7 @@ export type DemographicRow = {
 export async function loadDemographics(
   projectCode: string,
   periodMonth: string,
-  breakdownType: "age" | "gender" | "region" | "campaign" | "keyword" // ⬅️ thêm
+  breakdownType: "age" | "gender" | "region" | "campaign" | "keyword"
 ): Promise<DemographicRow[]> {
   const all = await fetchTable<DemographicRow>("ad_demographic_metrics", projectCode);
   return all.filter((r) => r.period_month === periodMonth && r.breakdown_type === breakdownType);
@@ -521,4 +520,46 @@ export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdo
   return [...map.values()]
     .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
     .sort((a, b) => b.impressions - a.impressions);
+}
+
+// ---------- Demographic breakdown theo Campaign + Age/Gender/Region (chi tiết, giữ breakdown) ----------
+export type CampaignBreakdownRow = {
+  campaignName: string;
+  breakdownValue: string;
+  platform: "google" | "meta";
+  impressions: number;
+  reach: number;
+  clicks: number;
+  spend: number;
+  ctr: number;
+};
+
+export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): CampaignBreakdownRow[] {
+  const map = new Map<string, CampaignBreakdownRow>();
+  for (const r of rows) {
+    const campaignName = r.campaign_name ?? "Unknown";
+    const key = `${campaignName}::${r.breakdown_value}::${r.platform}`;
+    const item =
+      map.get(key) ??
+      ({
+        campaignName,
+        breakdownValue: r.breakdown_value,
+        platform: r.platform,
+        impressions: 0,
+        reach: 0,
+        clicks: 0,
+        spend: 0,
+        ctr: 0,
+      } as CampaignBreakdownRow);
+
+    item.impressions += r.impressions || 0;
+    item.reach += r.reach || 0;
+    item.clicks += r.clicks || 0;
+    item.spend += r.spend || 0;
+
+    map.set(key, item);
+  }
+  return [...map.values()]
+    .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
+    .sort((a, b) => a.campaignName.localeCompare(b.campaignName) || b.impressions - a.impressions);
 }

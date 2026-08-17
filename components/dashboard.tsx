@@ -30,15 +30,17 @@ import {
   performanceScore,
   planSummary,
   fillMissingDeliveryStatus,
-  loadDemographics,          
-  aggregateDemographic,      
+  loadDemographics,
+  aggregateDemographic,
+  aggregateDemographicByCampaignDetail,
+  type CampaignBreakdownRow,
   type DataStatusRow,
   type DeliveryStatusRow,
   type ReportRow,
   type UnitCostPlanRow,
   type BusinessDimension,
   type Verdict,
-  type DemographicRow,       
+  type DemographicRow,
 } from "@/lib/dashboard-data";
 // project_code thật trong DB
 type DbProject = { code: string; label: string; sheetId?: string };
@@ -78,9 +80,16 @@ function VerdictChip({ v }: { v: Verdict }) {
 function PlatformChip({ p }: { p: string }) {
   const upper = (p || "").toUpperCase();
   const google = ["SEM", "ADX", "YOUTUBE"].includes(upper);
-  const meta = ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(upper); 
+  const meta = ["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(upper);
   const label = google ? "Google" : meta ? "Meta" : p;
   const cls = google ? "good" : meta ? "warn" : "neutral";
+  return <span className={`pill ${cls}`}>{label}</span>;
+}
+
+// Chip riêng cho platform dạng "google" | "meta" (khác PlatformChip vốn nhận tên channel như SEM/FACEBOOK...)
+function DemoPlatformChip({ p }: { p: "google" | "meta" }) {
+  const cls = p === "google" ? "good" : "warn";
+  const label = p === "google" ? "Google" : "Meta";
   return <span className={`pill ${cls}`}>{label}</span>;
 }
 
@@ -298,8 +307,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
 function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const { loading, error, kpis, signals, score, campaignRows, data, biz } = usePlanData(projectCode, periodMonth);
   const bizRows = biz("phase");
-  
-  // Áp dụng phân trang cho campaignRows
+
   const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
@@ -435,7 +443,6 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
   const rows = biz(dim);
   const label = bizTabs.find((t) => t.id === dim)?.label;
 
-  // Áp dụng phân trang
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(rows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
@@ -496,7 +503,6 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
   const [rows, setRows] = useState<Awaited<ReturnType<typeof loadExecutionRows>>>([]);
   const [loading, setLoading] = useState(true);
 
-  // Áp dụng phân trang
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(rows, 10);
 
   useEffect(() => {
@@ -616,6 +622,7 @@ function PlatformAudienceSection({
   platform: "Google" | "Meta";
 }) {
   const [dim, setDim] = useState<"age" | "gender" | "region">("age");
+  const [view, setView] = useState<"value" | "campaign">("value");
   const [rows, setRows] = useState<DemographicRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -636,7 +643,16 @@ function PlatformAudienceSection({
   }, [projectCode, periodMonth, dim, platformKey]);
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
+  const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
+
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const {
+    currentPage: campPage,
+    setCurrentPage: setCampPage,
+    totalPages: campTotalPages,
+    currentData: pagedCampaignRows,
+  } = usePagination(campaignBreakdown, 10);
+
   const label = demoTabs.find((t) => t.id === dim)?.label;
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
@@ -670,35 +686,77 @@ function PlatformAudienceSection({
       </div>
 
       <article className="card">
+        <div className="card-head">
+          <div><small>Bảng chi tiết</small><h3>Theo {label} · {platform}</h3></div>
+          <div className="tabs" style={{ gap: 4 }}>
+            <button type="button" className={`tab ${view === "value" ? "active" : ""}`} onClick={() => setView("value")}>Theo {label}</button>
+            <button type="button" className={`tab ${view === "campaign" ? "active" : ""}`} onClick={() => setView("campaign")}>Theo Campaign</button>
+          </div>
+        </div>
         <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{label}</th>
-                <th className="right">Impressions</th>
-                <th className="right">Reach</th>
-                <th className="right">Clicks</th>
-                <th className="right">CTR</th>
-                <th className="right">Spend</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedRows.map((b) => (
-                <tr key={b.label}>
-                  <td>{b.label}</td>
-                  <td className="right">{num(b.impressions)}</td>
-                  <td className="right">{num(b.reach)}</td>
-                  <td className="right">{num(b.clicks)}</td>
-                  <td className="right">{pct(b.ctr)}</td>
-                  <td className="right">{vnd(b.spend)}</td>
-                </tr>
-              ))}
-              {pagedRows.length === 0 && (
-                <tr><td colSpan={6}>Chưa có data audience cho {platform} ở kỳ này.</td></tr>
-              )}
-            </tbody>
-          </table>
-          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+          {view === "value" ? (
+            <>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{label}</th>
+                    <th className="right">Impressions</th>
+                    <th className="right">Reach</th>
+                    <th className="right">Clicks</th>
+                    <th className="right">CTR</th>
+                    <th className="right">Spend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedRows.map((b) => (
+                    <tr key={b.label}>
+                      <td>{b.label}</td>
+                      <td className="right">{num(b.impressions)}</td>
+                      <td className="right">{num(b.reach)}</td>
+                      <td className="right">{num(b.clicks)}</td>
+                      <td className="right">{pct(b.ctr)}</td>
+                      <td className="right">{vnd(b.spend)}</td>
+                    </tr>
+                  ))}
+                  {pagedRows.length === 0 && (
+                    <tr><td colSpan={6}>Chưa có data audience cho {platform} ở kỳ này.</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+            </>
+          ) : (
+            <>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Campaign</th>
+                    <th>{label}</th>
+                    <th className="right">Impressions</th>
+                    <th className="right">Clicks</th>
+                    <th className="right">CTR</th>
+                    <th className="right">Spend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedCampaignRows.map((r, i) => (
+                    <tr key={`${r.campaignName}-${r.breakdownValue}-${i}`}>
+                      <td className="mono">{r.campaignName}</td>
+                      <td>{r.breakdownValue}</td>
+                      <td className="right">{num(r.impressions)}</td>
+                      <td className="right">{num(r.clicks)}</td>
+                      <td className="right">{pct(r.ctr)}</td>
+                      <td className="right">{vnd(r.spend)}</td>
+                    </tr>
+                  ))}
+                  {pagedCampaignRows.length === 0 && (
+                    <tr><td colSpan={6}>Chưa có data campaign cho {platform} ở kỳ này.</td></tr>
+                  )}
+                </tbody>
+              </table>
+              <PaginationControls currentPage={campPage} totalPages={campTotalPages} onPageChange={setCampPage} />
+            </>
+          )}
         </div>
       </article>
     </>
@@ -715,9 +773,6 @@ function KeywordsSection({ projectCode }: { projectCode: string }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    // Data mtd_search_keyword không có period_month rõ ràng theo tháng cụ thể trong sheet
-    // -> sync lưu theo tháng hiện tại lúc chạy sync, nên load 'MTD hiện tại' bằng cách
-    // không filter theo periodMonth truyền vào page (khác AudiencePage) — lấy toàn bộ rồi gộp.
     loadDemographics(projectCode, currentMonthAbbrClient(), "keyword")
       .then((r) => !cancelled && setRows(r.filter((x) => x.platform === "google")))
       .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
@@ -787,6 +842,7 @@ const demoTabs: { id: "age" | "gender" | "region"; label: string }[] = [
 
 function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const [dim, setDim] = useState<"age" | "gender" | "region">("age");
+  const [view, setView] = useState<"value" | "campaign">("value");
   const [rows, setRows] = useState<DemographicRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -805,7 +861,16 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
   }, [projectCode, periodMonth, dim]);
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
+  const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
+
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const {
+    currentPage: campPage,
+    setCurrentPage: setCampPage,
+    totalPages: campTotalPages,
+    currentData: pagedCampaignRows,
+  } = usePagination(campaignBreakdown, 10);
+
   const label = demoTabs.find((t) => t.id === dim)?.label;
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
@@ -852,35 +917,79 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
         </article>
 
         <article className="card">
+          <div className="card-head">
+            <div><small>Bảng chi tiết</small><h3>Theo {label}</h3></div>
+            <div className="tabs" style={{ gap: 4 }}>
+              <button type="button" className={`tab ${view === "value" ? "active" : ""}`} onClick={() => setView("value")}>Theo {label}</button>
+              <button type="button" className={`tab ${view === "campaign" ? "active" : ""}`} onClick={() => setView("campaign")}>Theo Campaign</button>
+            </div>
+          </div>
           <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{label}</th>
-                  <th className="right">Impressions</th>
-                  <th className="right">Reach</th>
-                  <th className="right">Clicks</th>
-                  <th className="right">CTR</th>
-                  <th className="right">Spend</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedRows.map((b) => (
-                  <tr key={b.label}>
-                    <td>{b.label}</td>
-                    <td className="right">{num(b.impressions)}</td>
-                    <td className="right">{num(b.reach)}</td>
-                    <td className="right">{num(b.clicks)}</td>
-                    <td className="right">{pct(b.ctr)}</td>
-                    <td className="right">{vnd(b.spend)}</td>
-                  </tr>
-                ))}
-                {pagedRows.length === 0 && (
-                  <tr><td colSpan={6}>Chưa có data cho kỳ này.</td></tr>
-                )}
-              </tbody>
-            </table>
-            <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+            {view === "value" ? (
+              <>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{label}</th>
+                      <th className="right">Impressions</th>
+                      <th className="right">Reach</th>
+                      <th className="right">Clicks</th>
+                      <th className="right">CTR</th>
+                      <th className="right">Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedRows.map((b) => (
+                      <tr key={b.label}>
+                        <td>{b.label}</td>
+                        <td className="right">{num(b.impressions)}</td>
+                        <td className="right">{num(b.reach)}</td>
+                        <td className="right">{num(b.clicks)}</td>
+                        <td className="right">{pct(b.ctr)}</td>
+                        <td className="right">{vnd(b.spend)}</td>
+                      </tr>
+                    ))}
+                    {pagedRows.length === 0 && (
+                      <tr><td colSpan={6}>Chưa có data cho kỳ này.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+              </>
+            ) : (
+              <>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Campaign</th>
+                      <th>{label}</th>
+                      <th>Platform</th>
+                      <th className="right">Impressions</th>
+                      <th className="right">Clicks</th>
+                      <th className="right">CTR</th>
+                      <th className="right">Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedCampaignRows.map((r, i) => (
+                      <tr key={`${r.campaignName}-${r.breakdownValue}-${i}`}>
+                        <td className="mono">{r.campaignName}</td>
+                        <td>{r.breakdownValue}</td>
+                        <td><DemoPlatformChip p={r.platform} /></td>
+                        <td className="right">{num(r.impressions)}</td>
+                        <td className="right">{num(r.clicks)}</td>
+                        <td className="right">{pct(r.ctr)}</td>
+                        <td className="right">{vnd(r.spend)}</td>
+                      </tr>
+                    ))}
+                    {pagedCampaignRows.length === 0 && (
+                      <tr><td colSpan={7}>Chưa có data campaign cho kỳ này.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                <PaginationControls currentPage={campPage} totalPages={campTotalPages} onPageChange={setCampPage} />
+              </>
+            )}
           </div>
         </article>
       </div>
@@ -890,10 +999,9 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
 /* ---------------- Plan page ---------------- */
 function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const { loading, planRows } = usePlanData(projectCode, periodMonth);
-  
-  // Áp dụng phân trang
+
   const { currentPage, setCurrentPage, totalPages, currentData: pagedPlanRows } = usePagination(planRows, 10);
-  
+
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
 
   return (
@@ -941,7 +1049,6 @@ export function Dashboard() {
   const { projects, activeProject, activeId, setActiveId, addProject, editProject, removeProject, updateTheme, hydrated } = useProjects();
   const meta = navMeta(page);
 
-  // ⬅️ dbProjectCode giờ LUÔN đồng bộ với sidebar — không còn state riêng
   const dbProjectCode = activeProject?.code ?? "";
 
   const availableMonths = useAvailableMonths(dbProjectCode);
@@ -952,7 +1059,6 @@ export function Dashboard() {
     }
   }, [availableMonths, month]);
 
-  // ⬅️ Reset month khi đổi project, tránh giữ tháng của project cũ
   useEffect(() => {
     setMonth("");
   }, [dbProjectCode]);
@@ -998,7 +1104,6 @@ export function Dashboard() {
             <p>{meta.desc}</p>
           </div>
           <div className="header-controls">
-            {/* ⬅️ XÓA hẳn dropdown "Project (DB)" — chỉ còn 1 nguồn chọn project là sidebar */}
             <label className="period-select">
               <span>Plan view</span>
               <select value={planView} onChange={(e) => setPlanView(e.target.value as "MTD" | "YTD")}>
