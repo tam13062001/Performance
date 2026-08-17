@@ -761,6 +761,9 @@ td.mono {
   grid-template-columns: 1fr 1fr;
 }
 
+.mt-2 {
+  margin-top: 10px;
+}
 /* ---------- Header chip ---------- */
 .header-chip {
   display: inline-flex;

@@ -557,20 +557,35 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
 
   const showReach = rows.some((r) => r.reach !== null);
 
+  // Hàm rút ngắn label: Nếu dài hơn 15 ký tự thì cắt và thêm "..."
+  const TRUNCATE_LENGTH = 4;
+  const truncateLabel = (name: string) => {
+    return name.length > TRUNCATE_LENGTH ? name.substring(0, TRUNCATE_LENGTH) + "…" : name;
+  };
+
   return (
     <>
-      <div className="grid-2 two-thirds">
+      <div className=" two-thirds">
         <article className="card">
           <div className="card-head"><div><small>Delivery volume</small><h3>Impressions{showReach ? " & Reach" : ""}</h3></div></div>
           <div className="chart-wrap large">
-            <VolumeBarChart labels={rows.map((r) => r.name)} impressions={rows.map((r) => r.impressions)} reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined} />
+            <VolumeBarChart 
+              labels={rows.map((r) => r.name)} 
+              impressions={rows.map((r) => r.impressions)} 
+              reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined} 
+            />
           </div>
+          {/* LƯU Ý: ChartInsights vẫn nhận full tên (r.name) để AI đọc được chính xác dữ liệu */}
           <ChartInsights spec={{ title: `Impressions${showReach ? " & Reach" : ""} · ${platform}`, subject: `volume theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} />
         </article>
-        <article className="card">
+        
+        <article className="card mt-2">
           <div className="card-head"><div><small>Efficiency</small><h3>CTR</h3></div></div>
           <div className="chart-wrap large">
-            <RateLineChart labels={rows.map((r) => r.name)} ctr={rows.map((r) => Number(r.ctr.toFixed(2)))} />
+            <RateLineChart 
+              labels={rows.map((r) => r.name)} 
+              ctr={rows.map((r) => Number(r.ctr.toFixed(2)))} 
+            />
           </div>
           <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} />
         </article>
@@ -583,7 +598,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono">{r.name}</td>
+                  <td className="mono" title={r.name}>{r.name}</td>
                   <td className="right">{num(r.impressions)}</td>
                   <td className="right">{r.reach !== null ? num(r.reach) : "—"}</td>
                   <td className="right">{num(r.clicks)}</td>
@@ -600,7 +615,6 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
     </>
   );
 }
-
 function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta"; periodMonth: string; planView: "MTD" | "YTD" }) {
   const isGoogle = platform === "Google";
   const levels = [
@@ -625,7 +639,7 @@ function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { pr
 
       {!loading && <KpiCards cards={kpis} />}
 
-      {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope={platform} />}
+      {/* {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope={platform} />} */}
 
       <div className="page-toolbar">
         <div className="tabs">

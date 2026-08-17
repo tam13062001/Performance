@@ -225,7 +225,8 @@ export function ImpressionsReachCtrChart({
 }
 
 export function VolumeBarChart({ labels, impressions, reach }: { labels: string[]; impressions: number[]; reach?: number[] }) {
-  const c = useClientTheme()
+  const c = useClientTheme();
+  
   const datasets: ChartData<"bar">["datasets"] = [
     {
       label: "Impressions",
@@ -233,20 +234,62 @@ export function VolumeBarChart({ labels, impressions, reach }: { labels: string[
       backgroundColor: hexToRgba(c.primary, 0.6),
       borderRadius: 6,
     },
-  ]
+  ];
+  
   if (reach) {
     datasets.push({
       label: "Reach",
       data: reach,
       backgroundColor: hexToRgba(c.accent, 0.45),
       borderRadius: 6,
-    })
+    });
   }
-  return <Bar data={{ labels, datasets }} options={{ ...baseOptions(), scales: axes(false) }} />
+
+  // Lấy cấu hình trục và option mặc định của bạn
+  const defaultOptions = baseOptions();
+  const defaultScales = axes(false);
+
+  const customOptions = {
+    ...defaultOptions,
+    scales: {
+      ...defaultScales,
+      x: {
+        ...defaultScales.x,
+        ticks: {
+          ...(defaultScales.x?.ticks || {}),
+          // Cắt ngắn nhãn trên trục X
+          callback: function (value: any, index: number) {
+            const originalLabel = labels[index] || "";
+            const maxLength = 4; // Đổi số này để điều chỉnh độ dài nhãn hiển thị trên trục
+            if (originalLabel.length > maxLength) {
+              return originalLabel.substring(0, maxLength) + "…";
+            }
+            return originalLabel;
+          },
+        },
+      },
+    },
+    plugins: {
+      ...defaultOptions.plugins,
+      tooltip: {
+        ...(defaultOptions.plugins?.tooltip || {}),
+        callbacks: {
+          ...(defaultOptions.plugins?.tooltip?.callbacks || {}),
+          // Hiển thị full tên khi Hover
+          title: function (tooltipItems: any) {
+            return labels[tooltipItems[0].dataIndex];
+          },
+        },
+      },
+    },
+  };
+
+  return <Bar data={{ labels, datasets }} options={customOptions} />;
 }
 
 export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ctr: number[]; frequency?: number[] }) {
-  const c = useClientTheme()
+  const c = useClientTheme();
+  
   const datasets: ChartData<"line">["datasets"] = [
     {
       label: "CTR (%)",
@@ -258,7 +301,8 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
       pointRadius: 4,
       yAxisID: "y",
     },
-  ]
+  ];
+  
   if (frequency) {
     datasets.push({
       label: "Frequency",
@@ -270,10 +314,11 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
       tension: 0.4,
       pointRadius: 4,
       yAxisID: "y1",
-    })
+    });
   }
+
   // Dual axis only when frequency is present; otherwise single-axis CTR view.
-  const scales = frequency
+  const baseScales = frequency
     ? {
         x: xAxis(),
         y: { position: "left" as const, grid: { color: chartGrid() }, ticks: { color: chartText() } },
@@ -283,17 +328,54 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
           ticks: { color: seriesColor(c.accent) },
         },
       }
-    : axes(false)
+    : axes(false);
+
+  // 1. Chèn thêm logic cắt ngắn chữ vào cấu hình trục X (Dù là dual-axis hay single-axis)
+  const customScales = {
+    ...baseScales,
+    x: {
+      ...(baseScales.x || {}),
+      ticks: {
+        ...(baseScales.x?.ticks || {}),
+        callback: function (value: any, index: number) {
+          const originalLabel = labels[index] || "";
+          const maxLength = 4; // Cắt nhãn ở 10 ký tự, bạn có thể chỉnh số này
+          if (originalLabel.length > maxLength) {
+            return originalLabel.substring(0, maxLength) + "…";
+          }
+          return originalLabel;
+        },
+      },
+    },
+  };
+
+  // 2. Chèn thêm logic hiển thị Full Tên vào Tooltip
+  const bOptions = baseOptions();
+  const customOptions = {
+    ...bOptions,
+    plugins: {
+      ...bOptions.plugins,
+      legend: { display: !!frequency }, // Giữ nguyên logic bật/tắt legend của bạn
+      tooltip: {
+        ...(bOptions.plugins?.tooltip || {}),
+        callbacks: {
+          ...(bOptions.plugins?.tooltip?.callbacks || {}),
+          title: function (tooltipItems: any) {
+            // Khi hover, trả về tên đầy đủ từ mảng labels gốc
+            return labels[tooltipItems[0].dataIndex];
+          },
+        },
+      },
+    },
+    scales: customScales,
+  };
+
   return (
     <Line
       data={{ labels, datasets }}
-      options={{
-        ...baseOptions(),
-        plugins: { ...baseOptions().plugins, legend: { display: !!frequency } },
-        scales,
-      }}
+      options={customOptions}
     />
-  )
+  );
 }
 
 export function VolumeEfficiencyChart({
