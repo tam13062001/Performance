@@ -224,7 +224,17 @@ export function ImpressionsReachCtrChart({
   return <Bar data={data as ChartData<"bar">} options={{ ...baseOptions(), scales: axes(true) }} />
 }
 
-export function VolumeBarChart({ labels, impressions, reach }: { labels: string[]; impressions: number[]; reach?: number[] }) {
+export function VolumeBarChart({ 
+  labels, 
+  impressions, 
+  reach, 
+  maxLabelLength = 15 // <--- Nhận prop với giá trị mặc định là 15
+}: { 
+  labels: string[]; 
+  impressions: number[]; 
+  reach?: number[];
+  maxLabelLength?: number; 
+}) {
   const c = useClientTheme();
   
   const datasets: ChartData<"bar">["datasets"] = [
@@ -257,12 +267,12 @@ export function VolumeBarChart({ labels, impressions, reach }: { labels: string[
         ...defaultScales.x,
         ticks: {
           ...(defaultScales.x?.ticks || {}),
-          // Cắt ngắn nhãn trên trục X
+          // Cắt ngắn nhãn trên trục X bằng biến maxLabelLength
           callback: function (value: any, index: number) {
             const originalLabel = labels[index] || "";
-            const maxLength = 4; // Đổi số này để điều chỉnh độ dài nhãn hiển thị trên trục
-            if (originalLabel.length > maxLength) {
-              return originalLabel.substring(0, maxLength) + "…";
+            // Đã xóa biến maxLength = 4 ở đây và dùng thẳng maxLabelLength
+            if (originalLabel.length > maxLabelLength) {
+              return originalLabel.substring(0, maxLabelLength) + "…";
             }
             return originalLabel;
           },
@@ -287,7 +297,17 @@ export function VolumeBarChart({ labels, impressions, reach }: { labels: string[
   return <Bar data={{ labels, datasets }} options={customOptions} />;
 }
 
-export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ctr: number[]; frequency?: number[] }) {
+export function RateLineChart({ 
+  labels, 
+  ctr, 
+  frequency, 
+  maxLabelLength = 15 // <--- Giá trị mặc định là 15 ký tự
+}: { 
+  labels: string[]; 
+  ctr: number[]; 
+  frequency?: number[];
+  maxLabelLength?: number; 
+}) {
   const c = useClientTheme();
   
   const datasets: ChartData<"line">["datasets"] = [
@@ -317,7 +337,6 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
     });
   }
 
-  // Dual axis only when frequency is present; otherwise single-axis CTR view.
   const baseScales = frequency
     ? {
         x: xAxis(),
@@ -330,7 +349,6 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
       }
     : axes(false);
 
-  // 1. Chèn thêm logic cắt ngắn chữ vào cấu hình trục X (Dù là dual-axis hay single-axis)
   const customScales = {
     ...baseScales,
     x: {
@@ -339,9 +357,10 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
         ...(baseScales.x?.ticks || {}),
         callback: function (value: any, index: number) {
           const originalLabel = labels[index] || "";
-          const maxLength = 4; // Cắt nhãn ở 10 ký tự, bạn có thể chỉnh số này
-          if (originalLabel.length > maxLength) {
-            return originalLabel.substring(0, maxLength) + "…";
+          
+          // Sử dụng prop maxLabelLength để cắt chữ
+          if (originalLabel.length > maxLabelLength) {
+            return originalLabel.substring(0, maxLabelLength) + "…";
           }
           return originalLabel;
         },
@@ -349,19 +368,17 @@ export function RateLineChart({ labels, ctr, frequency }: { labels: string[]; ct
     },
   };
 
-  // 2. Chèn thêm logic hiển thị Full Tên vào Tooltip
   const bOptions = baseOptions();
   const customOptions = {
     ...bOptions,
     plugins: {
       ...bOptions.plugins,
-      legend: { display: !!frequency }, // Giữ nguyên logic bật/tắt legend của bạn
+      legend: { display: !!frequency }, 
       tooltip: {
         ...(bOptions.plugins?.tooltip || {}),
         callbacks: {
           ...(bOptions.plugins?.tooltip?.callbacks || {}),
           title: function (tooltipItems: any) {
-            // Khi hover, trả về tên đầy đủ từ mảng labels gốc
             return labels[tooltipItems[0].dataIndex];
           },
         },
