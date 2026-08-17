@@ -355,7 +355,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
           <ChartInsights spec={{ title: "CTR & Frequency theo Phase", subject: "hiệu suất theo phase", labels: bizRows.map((b) => b.label), ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))), frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))) }} />
         </article>
       </div>
-
+    {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
       <div className="grid-2">
         <article className="card">
           <div className="card-head">
@@ -391,7 +391,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
         </article>
       </div>
 
-      {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
+      
 
       <article className="card">
         <div className="card-head"><div><small>Campaign delivery</small><h3>Toàn bộ campaign · {periodMonth}</h3></div></div>
