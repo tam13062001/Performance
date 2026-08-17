@@ -205,6 +205,42 @@ export function usePlanData(projectCode: string, periodMonth: string) {
   };
 }
 
+/* ---------------- Volume & Efficiency theo Phase ---------------- */
+function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessBreakdown> }) {
+  if (bizRows.length === 0) return null;
+
+  return (
+    <article className="card">
+      <div className="card-head">
+        <div>
+          <small>Volume &amp; efficiency</small>
+          <h3>Impressions, CTR &amp; Frequency theo Phase</h3>
+        </div>
+        <span className="chip-config">Combo 3 trục</span>
+      </div>
+      <div className="chart-wrap large">
+        <VolumeEfficiencyChart
+          labels={bizRows.map((b) => b.label)}
+          impressions={bizRows.map((b) => b.impressions)}
+          ctr={bizRows.map((b) => Number(b.ctr.toFixed(2)))}
+          frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))}
+        />
+      </div>
+      <ChartInsights
+        spec={{
+          title: "Impressions, CTR & Frequency theo Phase",
+          subject: "volume & efficiency theo phase",
+          labels: bizRows.map((b) => b.label),
+          volume: bizRows.map((b) => b.impressions),
+          volumeLabel: "Impressions",
+          ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))),
+          frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))),
+        }}
+      />
+    </article>
+  );
+}
+
 /* ---------------- Pagination Hooks & Components ---------------- */
 function usePagination<T>(data: T[], itemsPerPage = 10) {
   const [currentPage, setCurrentPage] = useState(1);
@@ -268,7 +304,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
     };
   }, [projectCode]);
 
-  if (series.length === 0) return null;
+
 
   return (
     <article className="card">
@@ -355,7 +391,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
           <ChartInsights spec={{ title: "CTR & Frequency theo Phase", subject: "hiệu suất theo phase", labels: bizRows.map((b) => b.label), ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))), frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))) }} />
         </article>
       </div>
-    {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
+      <PhaseEfficiencyCard bizRows={bizRows} />
       <div className="grid-2">
         <article className="card">
           <div className="card-head">
