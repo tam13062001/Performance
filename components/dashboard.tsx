@@ -464,7 +464,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
               <tr>
                 <th>Campaign</th><th>Buying type</th>
                 <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
-              </tr>
+              </tr> 
             </thead>
             <tbody>
               {pagedCampaignRows.map((r) => (
