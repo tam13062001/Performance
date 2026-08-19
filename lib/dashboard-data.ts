@@ -245,27 +245,66 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
 }
 
 // ---------- Business breakdown ----------
+// ---------- Business breakdown ----------
 export type BusinessDimension = "phase" | "region" | "buying_type" | "channel";
-export type BusinessRow = { label: string; campaigns: number; impressions: number; reach: number; clicks: number; ctr: number; spend: number };
+export type BusinessRow = {
+  label: string;
+  campaigns: number;
+  impressions: number;
+  reach: number;
+  engagements: number;
+  views: number;
+  clicks: number;
+  linkClicks: number;
+  landingPageViews: number;
+  leads: number;
+  spend: number;
+  ctr: number;
+  er: number;
+};
 
 export function businessBreakdown(dim: BusinessDimension, report: ReportRow[]): BusinessRow[] {
   const map = new Map<string, BusinessRow>();
   for (const r of report) {
     const raw = String(r[dim] ?? "");
     const label = raw.trim() === "" ? "Chưa map" : raw;
-    const row = map.get(label) ?? { label, campaigns: 0, impressions: 0, reach: 0, clicks: 0, ctr: 0, spend: 0 };
+    const row =
+      map.get(label) ??
+      ({
+        label,
+        campaigns: 0,
+        impressions: 0,
+        reach: 0,
+        engagements: 0,
+        views: 0,
+        clicks: 0,
+        linkClicks: 0,
+        landingPageViews: 0,
+        leads: 0,
+        spend: 0,
+        ctr: 0,
+        er: 0,
+      } as BusinessRow);
     row.campaigns += 1;
     row.impressions += r.impressions;
     row.reach += r.reach;
+    row.engagements += r.engagements;
+    row.views += r.views;
     row.clicks += r.clicks;
+    row.linkClicks += r.link_clicks;
+    row.landingPageViews += r.landing_page_views;
+    row.leads += r.leads;
     row.spend += r.spend;
     map.set(label, row);
   }
   return [...map.values()]
-    .map((r) => ({ ...r, ctr: ctrOf(r.impressions, r.clicks) }))
+    .map((r) => ({
+      ...r,
+      ctr: ctrOf(r.impressions, r.clicks),
+      er: ctrOf(r.impressions, r.engagements),
+    }))
     .sort((a, b) => b.impressions - a.impressions);
 }
-
 // ---------- Monthly trend ----------
 export type MonthlyPoint = { month: string; impressions: number; reach: number; clicks: number; spend: number; ctr: number; frequency: number };
 

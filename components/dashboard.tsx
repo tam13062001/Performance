@@ -519,38 +519,75 @@ function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: str
         </div>
       </div>
 
-      <div className="grid-2 two-thirds">
-        <article className="card">
-          <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label}</h3></div></div>
-          <div className="chart-wrap large">
-            <VolumeBarChart labels={rows.map((r) => r.label)} impressions={rows.map((r) => r.impressions)} reach={rows.map((r) => r.reach)} />
+      <article className="card">
+        <div className="card-head">
+          <div>
+            <small>Volume &amp; efficiency</small>
+            <h3>Impressions, CTR &amp; Frequency theo {label}</h3>
           </div>
-          <ChartInsights spec={{ title: `Impressions theo ${label}`, subject: `volume theo ${label?.toLowerCase()}`, labels: rows.map((r) => r.label), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} />
-        </article>
-        <article className="card">
-          <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
-          <div className="chart-wrap large">
-            <RateLineChart labels={rows.map((r) => r.label)} ctr={rows.map((r) => Number(r.ctr.toFixed(2)))} />
-          </div>
-          <ChartInsights spec={{ title: `CTR theo ${label}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()}`, labels: rows.map((r) => r.label), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} />
-        </article>
-      </div>
+          <span className="chip-config">Combo 3 trục</span>
+        </div>
+        <div className="chart-wrap large">
+          <VolumeEfficiencyChart
+            labels={rows.map((r) => r.label)}
+            impressions={rows.map((r) => r.impressions)}
+            ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
+            frequency={rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2)))}
+          />
+        </div>
+        <ChartInsights
+          spec={{
+            title: `Impressions, CTR & Frequency theo ${label}`,
+            subject: `volume & efficiency theo ${label?.toLowerCase()}`,
+            labels: rows.map((r) => r.label),
+            volume: rows.map((r) => r.impressions),
+            volumeLabel: "Impressions",
+            ctr: rows.map((r) => Number(r.ctr.toFixed(2))),
+            frequency: rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2))),
+          }}
+        />
+      </article>
 
       {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
 
       <article className="card">
+        <div className="card-head"><div><small>Bảng chi tiết</small><h3>Theo {label}</h3></div></div>
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Dimension</th><th className="right">Rows</th><th className="right">Impressions</th><th className="right">Reach</th><th className="right">Clicks</th><th className="right">CTR</th><th className="right">Spend</th></tr>
+              <tr>
+                <th>{label}</th>
+                <th className="right">Reach</th>
+                <th className="right">Impressions</th>
+                <th className="right">Engagements</th>
+                <th className="right">Views</th>
+                <th className="right">Clicks</th>
+                <th className="right">Link Clicks</th>
+                <th className="right">Landing Page Views</th>
+                <th className="right">Leads</th>
+                <th className="right">CTR</th>
+                <th className="right">ER</th>
+              </tr>
             </thead>
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.label}>
-                  <td>{r.label}</td><td className="right">{r.campaigns}</td><td className="right">{num(r.impressions)}</td>
-                  <td className="right">{num(r.reach)}</td><td className="right">{num(r.clicks)}</td><td className="right">{pct(r.ctr)}</td><td className="right">{vnd(r.spend)}</td>
+                  <td>{r.label}</td>
+                  <td className="right">{num(r.reach)}</td>
+                  <td className="right">{num(r.impressions)}</td>
+                  <td className="right">{num(r.engagements)}</td>
+                  <td className="right">{num(r.views)}</td>
+                  <td className="right">{num(r.clicks)}</td>
+                  <td className="right">{num(r.linkClicks)}</td>
+                  <td className="right">{num(r.landingPageViews)}</td>
+                  <td className="right">{num(r.leads)}</td>
+                  <td className="right">{pct(r.ctr)}</td>
+                  <td className="right">{pct(r.er)}</td>
                 </tr>
               ))}
+              {pagedRows.length === 0 && (
+                <tr><td colSpan={11}>Chưa có data cho kỳ này.</td></tr>
+              )}
             </tbody>
           </table>
           <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
