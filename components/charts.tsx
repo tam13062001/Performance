@@ -462,19 +462,47 @@ export function VolumeEfficiencyChart({
   return <Bar data={{ labels, datasets } as ChartData<"bar">} options={{ ...baseOptions(), scales }} />
 }
 
-export function ChannelDoughnut({ google, meta }: { google: number; meta: number }) {
+export type ChannelSlice = { label: string; value: number };
+
+const CHANNEL_COLOR_MAP: Record<string, string> = {
+  FACEBOOK: PLATFORM_COLORS.Meta,
+  SEM: PLATFORM_COLORS.Google,
+  ADX: PLATFORM_COLORS.Google,
+  YOUTUBE: PLATFORM_COLORS.Google,
+  TIKTOK: "#111827", // hoặc màu brand TikTok bạn muốn dùng
+  "MB INPAGE": "#7c3aed",
+};
+
+// Bảng màu dự phòng khi gặp channel chưa được khai báo màu riêng, để không bị trùng màu/hụt màu
+const FALLBACK_COLORS = ["#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#ef4444"];
+
+function colorForChannel(name: string, indexIfUnknown: number): string {
+  const key = name.trim().toUpperCase();
+  return CHANNEL_COLOR_MAP[key] ?? FALLBACK_COLORS[indexIfUnknown % FALLBACK_COLORS.length];
+}
+
+export function ChannelDoughnut({ slices }: { slices: ChannelSlice[] }) {
+  let fallbackIdx = 0;
+  const colors = slices.map((s) => {
+    const key = s.label.trim().toUpperCase();
+    const color = CHANNEL_COLOR_MAP[key] ?? FALLBACK_COLORS[fallbackIdx % FALLBACK_COLORS.length];
+    if (!CHANNEL_COLOR_MAP[key]) fallbackIdx++;
+    return hexToRgba(color, 0.9);
+  });
+
   const data: ChartData<"doughnut"> = {
-    labels: ["Google Ads", "Meta Ads"],
+    labels: slices.map((s) => s.label),
     datasets: [
       {
-        data: [google, meta],
-        backgroundColor: [hexToRgba(PLATFORM_COLORS.Google, 0.9), hexToRgba(PLATFORM_COLORS.Meta, 0.9)],
+        data: slices.map((s) => s.value),
+        backgroundColor: colors,
         borderColor: cvar("--panel", "#0c1122"),
         borderWidth: 3,
         hoverOffset: 6,
       },
     ],
-  }
+  };
+
   return (
     <Doughnut
       data={data}
@@ -488,7 +516,7 @@ export function ChannelDoughnut({ google, meta }: { google: number; meta: number
         },
       }}
     />
-  )
+  );
 }
 
 export function CreativeChart({ labels, ctr }: { labels: string[]; ctr: number[] }) {

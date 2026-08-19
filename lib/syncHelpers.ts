@@ -61,26 +61,52 @@ export function parseSheetNumber(raw: unknown): number {
 
 /** Parse ngày từ chuỗi Google Sheet, hỗ trợ vài định dạng phổ biến (yyyy-mm-dd, dd/mm/yyyy, mm/dd/yyyy) */
 export function parseSheetDate(raw: unknown): string | null {
-  if (!raw) return null;
+  if (raw === null || raw === undefined || raw === '') return null;
+
+  // Nếu raw đã là Date object (một số client Google Sheets tự parse sẵn) -> LUÔN đọc theo UTC,
+  // không dùng String(raw)/toString() vì nó theo local timezone của server, gây lệch ngày.
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return null;
+    const y = raw.getUTCFullYear();
+    const m = String(raw.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(raw.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   const str = String(raw).trim();
   if (!str) return null;
 
-  // yyyy-mm-dd (ISO) - ưu tiên nhận trực tiếp
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  // yyyy-mm-dd (ISO) - nhận trực tiếp phần đầu, không qua new Date()
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
 
   // dd/mm/yyyy hoặc mm/dd/yyyy - giả định dd/mm/yyyy vì sheet nguồn là VN
   const parts = str.split(/[/-]/);
   if (parts.length === 3) {
     const [a, b, c] = parts;
-    if (c.length === 4) {
-      const day = a.padStart(2, '0');
-      const month = b.padStart(2, '0');
-      return `${c}-${month}-${day}`;
+    if (c.length === 4 && /^\d+$/.test(a) && /^\d+$/.test(b)) {
+      return `${c}-${b.padStart(2, '0')}-${a.padStart(2, '0')}`;
     }
   }
 
+  // Serial number kiểu Google Sheets (số ngày kể từ 1899-12-30) - phòng trường hợp
+  // getSheetValues trả UNFORMATTED_VALUE thay vì string ngày.
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const serial = Number(str);
+    if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+      const utcMs = Date.UTC(1899, 11, 30) + Math.round(serial) * 86400000;
+      return new Date(utcMs).toISOString().slice(0, 10);
+    }
+  }
+
+  // Fallback cuối - luôn đọc lại theo UTC getters, không dùng local
   const d = new Date(str);
-  if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  if (!isNaN(d.getTime())) {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
 
   return null;
 }

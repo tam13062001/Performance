@@ -10,7 +10,7 @@ import { useProjects } from "@/lib/projects";
 import { applyProjectTheme, ClientThemeContext } from "@/lib/theme";
 import { KpiCards } from "./kpi-card";
 import { ChartInsights } from "./chart-insights";
-import { ChannelDoughnut, RateLineChart, VolumeBarChart, VolumeEfficiencyChart } from "./charts";
+import { ChannelDoughnut, RateLineChart, VolumeBarChart, VolumeEfficiencyChart, type ChannelSlice } from "./charts";
 import {
   num,
   pct,
@@ -33,6 +33,8 @@ import {
   loadDemographics,
   aggregateDemographic,
   aggregateDemographicByCampaignDetail,
+  deliveryAlertGroups,
+  type AlertRow,
   type CampaignBreakdownRow,
   type DataStatusRow,
   type DeliveryStatusRow,
@@ -42,8 +44,18 @@ import {
   type Verdict,
   type DemographicRow,
 } from "@/lib/dashboard-data";
+
 // project_code thật trong DB
 type DbProject = { code: string; label: string; sheetId?: string };
+
+function AlertLine({ row }: { row: AlertRow }) {
+  return (
+    <p className="alert-line">
+      {row.region} - {row.channel} - {row.buyingType} - {row.asset} - {row.statusLabel} -{" "}
+      {row.value.toFixed(2)}%
+    </p>
+  );
+}
 
 function useDbProjects() {
   const [projects, setProjects] = useState<DbProject[]>([]);
@@ -181,7 +193,7 @@ export function usePlanData(projectCode: string, periodMonth: string) {
     }
   }, [mergedData, delivery, data]);
 
-  const kpis = useMemo(() => overviewKpis(mergedData), [mergedData]);
+  const kpis = useMemo(() => overviewKpis(mergedData, delivery), [mergedData, delivery]);
   const signals = useMemo(() => overviewSignals(mergedData), [mergedData]);
   const score = useMemo(() => performanceScore(mergedData), [mergedData]);
   const campaignRows = useMemo(() => campaignDeliveryRows(mergedData), [mergedData]);
@@ -304,8 +316,6 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
     };
   }, [projectCode]);
 
-
-
   return (
     <article className="card">
       <div className="card-head">
@@ -342,6 +352,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
 /* ---------------- Campaign Overview ---------------- */
 function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const { loading, error, kpis, signals, score, campaignRows, data, biz } = usePlanData(projectCode, periodMonth);
+  const alertGroups = useMemo(() => deliveryAlertGroups(data), [data]);
   const bizRows = biz("phase");
 
   const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
@@ -349,8 +360,17 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
 
-  const googleImp = data.filter(r => ["SEM", "ADX", "YOUTUBE"].includes((r.channel || "").toUpperCase())).reduce((s, r) => s + (r.impressions || 0), 0);
-  const metaImp = data.filter(r => !["SEM", "ADX", "YOUTUBE"].includes((r.channel || "").toUpperCase())).reduce((s, r) => s + (r.impressions || 0), 0);
+  // Breakdown theo TỪNG channel thật (không nhị phân Google/Meta nữa) — số lát bánh tự co giãn theo data
+  const channelSlices: ChannelSlice[] = Object.entries(
+    data.reduce<Record<string, number>>((acc, r) => {
+      const key = (r.channel || "Chưa map").trim().toUpperCase();
+      acc[key] = (acc[key] || 0) + (r.impressions || 0);
+      return acc;
+    }, {})
+  )
+    .filter(([, imp]) => imp > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => ({ label, value }));
 
   return (
     <>
@@ -398,7 +418,7 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
             <div><small>CHANNEL CONTRIBUTION</small><h3>Impressions theo nền tảng</h3></div>
           </div>
           <div className="chart-wrap large" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <ChannelDoughnut google={googleImp} meta={metaImp} />
+            <ChannelDoughnut slices={channelSlices} />
           </div>
           <div style={{ padding: '16px', borderTop: '1px solid var(--border)' }}>
              <button style={{ display: 'flex', gap: '6px', alignItems: 'center', background: 'transparent', border: '1px solid var(--border)', color: 'var(--fg)', padding: '6px 12px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}>
@@ -413,21 +433,28 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
             <div><small>PERFORMANCE SIGNALS</small><h3>Cảnh báo chính</h3></div>
           </div>
           <div className="alerts">
-            {signals.length === 0 && <p>Không có cảnh báo cho kỳ này.</p>}
-            {signals.map((s, i) => (
-              <div key={i} className={`alert ${s.tone}`}>
-                <span className="alert-dot" />
-                <div>
-                  <strong>{s.title}</strong>
-                  <p>{s.detail}</p>
-                </div>
-              </div>
-            ))}
+            <p className="alerts-intro">Alert các vấn đề sau</p>
+
+            <div className="alert-group">
+              <strong>1. Chậm spending/ delivery (V + Q)</strong>
+              {alertGroups.laggingDelivery.length === 0 ? (
+                <p className="alert-empty">Không có campaign nào bị chậm delivery.</p>
+              ) : (
+                alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
+              )}
+            </div>
+
+            <div className="alert-group">
+              <strong>2. Chi phí vượt ngưỡng (W + T)</strong>
+              {alertGroups.overCost.length === 0 ? (
+                <p className="alert-empty">Không có campaign nào vượt ngưỡng chi phí.</p>
+              ) : (
+                alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
+              )}
+            </div>
           </div>
         </article>
       </div>
-
-      
 
       <article className="card">
         <div className="card-head"><div><small>Campaign delivery</small><h3>Toàn bộ campaign · {periodMonth}</h3></div></div>
@@ -435,21 +462,20 @@ function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: str
           <table>
             <thead>
               <tr>
-                <th>Campaign</th><th>Platform</th><th>Phase</th><th>Location</th><th>Buying type</th>
-                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">CTR</th><th>Status</th>
+                <th>Campaign</th><th>Buying type</th>
+                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
               {pagedCampaignRows.map((r) => (
                 <tr key={r.id}>
                   <td className="mono">{r.label}</td>
-                  <td><PlatformChip p={r.channel} /></td>
-                  <td>{r.phase}</td>
-                  <td>{r.region}</td>
                   <td>{r.buyingType}</td>
                   <td className="right">{num(r.impressions)}</td>
                   <td className="right">{num(r.reach)}</td>
+                  <td className="right">{num(r.engagement)}</td>
                   <td className="right">{pct(r.ctr)}</td>
+                  <td className="right">{pct(r.er)}</td>
                   <td><VerdictChip v={r.verdict} /></td>
                 </tr>
               ))}
@@ -557,7 +583,6 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
 
   const showReach = rows.some((r) => r.reach !== null);
 
-  // Hàm rút ngắn label: Nếu dài hơn 15 ký tự thì cắt và thêm "..."
   const TRUNCATE_LENGTH = 4;
   const truncateLabel = (name: string) => {
     return name.length > TRUNCATE_LENGTH ? name.substring(0, TRUNCATE_LENGTH) + "…" : name;
@@ -569,25 +594,25 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
         <article className="card">
           <div className="card-head"><div><small>Delivery volume</small><h3>Impressions{showReach ? " & Reach" : ""}</h3></div></div>
           <div className="chart-wrap large">
-<VolumeBarChart 
-  labels={rows.map((r) => r.name)} 
-  impressions={rows.map((r) => r.impressions)} 
-  reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined} 
-  maxLabelLength={4} 
-/>
+            <VolumeBarChart
+              labels={rows.map((r) => r.name)}
+              impressions={rows.map((r) => r.impressions)}
+              reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined}
+              maxLabelLength={4}
+            />
           </div>
           {/* LƯU Ý: ChartInsights vẫn nhận full tên (r.name) để AI đọc được chính xác dữ liệu */}
           <ChartInsights spec={{ title: `Impressions${showReach ? " & Reach" : ""} · ${platform}`, subject: `volume theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} />
         </article>
-        
+
         <article className="card mt-2">
           <div className="card-head"><div><small>Efficiency</small><h3>CTR</h3></div></div>
           <div className="chart-wrap large">
-<RateLineChart 
-  labels={rows.map((r) => r.name)} 
-  ctr={rows.map((r) => Number(r.ctr.toFixed(2)))} 
-  maxLabelLength={4} 
-/>
+            <RateLineChart
+              labels={rows.map((r) => r.name)}
+              ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
+              maxLabelLength={4}
+            />
           </div>
           <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} />
         </article>
@@ -617,6 +642,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
     </>
   );
 }
+
 function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta"; periodMonth: string; planView: "MTD" | "YTD" }) {
   const isGoogle = platform === "Google";
   const levels = [
@@ -640,8 +666,6 @@ function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { pr
       </div>
 
       {!loading && <KpiCards cards={kpis} />}
-
-      {/* {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope={platform} />} */}
 
       <div className="page-toolbar">
         <div className="tabs">
@@ -962,8 +986,10 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
           </div>
           <div className="chart-wrap large" style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
             <ChannelDoughnut
-              google={breakdown.reduce((s, b) => s + b.googleImpressions, 0)}
-              meta={breakdown.reduce((s, b) => s + b.metaImpressions, 0)}
+              slices={[
+                { label: "Google Ads", value: breakdown.reduce((s, b) => s + b.googleImpressions, 0) },
+                { label: "Meta Ads", value: breakdown.reduce((s, b) => s + b.metaImpressions, 0) },
+              ].filter((s) => s.value > 0)}
             />
           </div>
         </article>
@@ -1048,6 +1074,7 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
     </>
   );
 }
+
 /* ---------------- Plan page ---------------- */
 function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const { loading, planRows } = usePlanData(projectCode, periodMonth);

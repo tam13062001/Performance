@@ -23,6 +23,11 @@ interface MasterDataColumnMap {
   asset: number | null;
 }
 
+// ⚠️ COLUMN_MAPS chỉ áp dụng cho các project CÒN dùng sheet MASTER_DATA kiểu cũ
+// (gộp sẵn mọi dimension trong 1 tab). Từ khi chuyển sang layout chuẩn
+// MTD_DATA/MTD_DELIVERY_STATUS/MTD_REPORT/MTD_UNIT_COST_PLAN (xem syncConfigs.ts),
+// project MỚI KHÔNG CẦN khai báo ở đây nữa — pipeline này sẽ tự skip nếu
+// project không có entry, thay vì báo lỗi.
 const COLUMN_MAPS: Record<string, MasterDataColumnMap> = {
   TANAKAN: {
     region: 1, phase: 2, channel: 3, asset: 4, reportDate: 5, campaignName: 6,
@@ -47,6 +52,7 @@ export interface SyncResult {
   errorMessage?: string;
   sampleErrors?: string[];
   mergedDuplicateGroups?: number; // số nhóm dòng bị trùng key đã được cộng dồn lại
+  skippedEmpty?: boolean;
 }
 
 // Một dòng đã gộp: giữ nguyên phần dimension, cộng dồn phần metric.
@@ -82,13 +88,17 @@ export async function syncMasterDataForProject(
 
   const COL = COLUMN_MAPS[projectCode];
   if (!COL) {
+    // ⬅️ Đổi từ "lỗi" sang "skip" — project mới theo layout chuẩn MTD_DATA
+    // không cần sheet MASTER_DATA, nên không có mapping ở đây là bình thường,
+    // không phải cấu hình thiếu sót.
+    client.release();
     return {
       projectCode,
       table: 'ad_daily_metrics',
       totalRows: 0,
       successRows: 0,
       failedRows: 0,
-      errorMessage: `Chưa có column mapping cho project "${projectCode}" trong COLUMN_MAPS.`,
+      skippedEmpty: true,
     };
   }
 
@@ -97,6 +107,20 @@ export async function syncMasterDataForProject(
     if (projectRes.rows.length === 0) throw new Error(`Không tìm thấy project_code "${projectCode}" trong ad_projects`);
     const projectId = projectRes.rows[0].id;
 
+    // ⬅️ Nếu tab MASTER_DATA không tồn tại trong sheet (project chưa từng dùng
+    // layout cũ), coi là skip thay vì lỗi — getSheetValues sẽ throw nếu tab
+    // không tồn tại, nên bắt riêng lỗi đó ở đây.
+    let rawRows: unknown[][];
+    try {
+      rawRows = await getSheetValues(spreadsheetId, tabName);
+    } catch (fetchErr) {
+      const msg = (fetchErr as Error).message ?? '';
+      if (/unable to parse range|not found/i.test(msg)) {
+        return { projectCode, table: 'ad_daily_metrics', totalRows: 0, successRows: 0, failedRows: 0, skippedEmpty: true };
+      }
+      throw fetchErr;
+    }
+
     const batchRes = await client.query(
       `INSERT INTO ad_import_batches (project_id, source_file_name, source_sheet_name, status)
        VALUES ($1, $2, $3, 'processing') RETURNING id`,
@@ -104,8 +128,12 @@ export async function syncMasterDataForProject(
     );
     batchId = batchRes.rows[0].id;
 
-    const rawRows = await getSheetValues(spreadsheetId, tabName);
     const dataRows = rawRows.slice(1).filter((row) => row.length > 0 && row[COL.campaignName]);
+
+    if (dataRows.length === 0) {
+      await client.query(`UPDATE ad_import_batches SET status = 'success', total_rows = 0, success_rows = 0, failed_rows = 0 WHERE id = $1`, [batchId]);
+      return { projectCode, table: 'ad_daily_metrics', totalRows: 0, successRows: 0, failedRows: 0, skippedEmpty: true };
+    }
 
     let failedRows = 0;
     const sampleErrors: string[] = [];

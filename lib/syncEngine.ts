@@ -21,6 +21,37 @@ export interface RowSyncConfig {
   sheetIdOverride?: string;
 }
 
+/**
+ * Tách danh sách cột trong conflictColumns theo dấu phẩy ở top-level,
+ * tôn trọng dấu phẩy nằm bên trong COALESCE(...) (không tách nhầm).
+ * VD: "project_id, COALESCE(adset_name, ''), date_start"
+ *  -> ["project_id", "COALESCE(adset_name, '')", "date_start"]
+ */
+function splitTopLevelColumns(input: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of input) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+/** Lấy tên cột thật từ 1 phần tử của conflictColumns, kể cả khi nó được bọc COALESCE(...) */
+function extractColumnName(term: string): string {
+  const m = term.match(/COALESCE\(\s*([a-zA-Z_][a-zA-Z0-9_]*)/i);
+  if (m) return m[1];
+  return term.trim();
+}
+
 export async function syncRawSheet(
   projectCode: string,
   spreadsheetId: string,
@@ -56,6 +87,10 @@ export async function syncRawSheet(
     let skippedRows = 0;
     const sampleErrors: string[] = [];
 
+    // Cột nào thuộc key (conflictColumns) thì KHÔNG được ghi đè khi đã tồn tại;
+    // các cột còn lại (số liệu, ngày plan, status...) sẽ được UPDATE bằng giá trị mới nhất mỗi lần sync.
+    const conflictColSet = new Set(splitTopLevelColumns(config.conflictColumns).map(extractColumnName));
+
     await client.query('BEGIN');
 
     for (const row of dataRows) {
@@ -72,9 +107,19 @@ export async function syncRawSheet(
 
         const cols = Object.keys(values);
         const placeholders = cols.map((_, i) => `$${i + 1}`);
-        const sql = `INSERT INTO ${config.table} (${cols.join(', ')})
-                    VALUES (${placeholders.join(', ')})
-                    ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
+
+        // Cột cần UPDATE = mọi cột trừ những cột nằm trong khóa xung đột.
+        // import_batch_id luôn được update để biết dòng vừa được sync ở batch nào gần nhất.
+        const updateCols = cols.filter((c) => !conflictColSet.has(c));
+
+        const sql = updateCols.length > 0
+          ? `INSERT INTO ${config.table} (${cols.join(', ')})
+             VALUES (${placeholders.join(', ')})
+             ON CONFLICT (${config.conflictColumns})
+             DO UPDATE SET ${updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`
+          : `INSERT INTO ${config.table} (${cols.join(', ')})
+             VALUES (${placeholders.join(', ')})
+             ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
 
         await client.query(sql, cols.map((c) => values[c]));
         await client.query('RELEASE SAVEPOINT row_sp');

@@ -7,12 +7,23 @@ export const vnd = (n: number) => {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + " tr";
   return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + " ₫";
 };
+
 export const num = (n: number) => (Number.isFinite(n) ? new Intl.NumberFormat("vi-VN").format(Math.round(n)) : "—");
+export const float = (n: number) => 
+  Number.isFinite(n) 
+    ? new Intl.NumberFormat("vi-VN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(n) 
+    : "—";
 export const pct = (n: number) => (Number.isFinite(n) ? `${n.toFixed(2)}%` : "—");
+
 export const freqFmt = (n: number) => (Number.isFinite(n) ? n.toFixed(2) + "x" : "—");
 export const ctrOf = (imp: number, clk: number) => (imp > 0 ? (clk / imp) * 100 : 0);
 export const cpcOf = (spend: number, clk: number) => (clk > 0 ? spend / clk : 0);
 export const freqOf = (imp: number, reach: number) => (reach > 0 ? imp / reach : 0);
+
+export const cr = (num1: number, num2: number) => (num2 > 0 ? (num1 / num2) * 100 : 0);
 
 // ---------- Row types khớp DB thật ----------
 export type DataStatusRow = {
@@ -143,13 +154,13 @@ export async function loadAvailableMonths(projectCode: string): Promise<string[]
 }
 
 // ---------- KPI tổng quan (Đã chuyển sang dùng DataStatusRow) ----------
-export type KpiCard = { label: string; value: string; sub: string; trend: "up" | "down"; delta: string };
+export type KpiCard = { label: string; value: string; sub: string; trend?: "up" | "down"; delta?: string };
 
 function sum<T>(rows: T[], pick: (r: T) => number) {
   return rows.reduce((s, r) => s + (pick(r) ?? 0), 0);
 }
 
-export function overviewKpis(data: DataStatusRow[]): KpiCard[] {
+export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[] = []) {
   if (data.length === 0) return [];
 
   const imp = sum(data, (r) => r.impressions);
@@ -158,22 +169,78 @@ export function overviewKpis(data: DataStatusRow[]): KpiCard[] {
   const spend = sum(data, (r) => r.spend);
   const plannedQuantity = sum(data, (r) => r.planned_quantity);
   const actualDelivery = sum(data, (r) => r.actual_delivery);
+  const views = sum(data, (r) => r.views);
+  const eng = sum(data, (r) => r.engagements);
 
   const avgTimePassedPct = data.length > 0 ? sum(data, (r) => r.time_passed_pct) / data.length : 0;
-
-  const ctr = ctrOf(imp, clicks);
+  const soldvalue = sum(delivery , (r) => r.sold_value);
+  const costoptimizepct = sum(delivery, (r)=> r.cost_optimized);
+  
+  const spendoptimize = costoptimizepct/soldvalue;
+  const totalvalue = sum(delivery, (r)=> (r.unit_cost) * (r.planned_quantity));
+  
+  console.log('cost',totalvalue);
+  console.log('sold',soldvalue);
+  const ctr = cr(clicks, imp);
+  const er = cr(eng, imp);
   const cpc = cpcOf(spend, clicks);
   const freq = freqOf(imp, reach);
   const deliveryPct = plannedQuantity > 0 ? (actualDelivery / plannedQuantity) * 100 : 0;
 
-  const spendPacing = data.length > 0 ? sum(data, r => r.cost_optimized_pct) / data.length : 0;
+  const spendPacing = soldvalue/totalvalue;
 
   return [
-    { label: "Impressions (MTD)", value: num(imp), sub: `${num(clicks)} clicks`, trend: "up", delta: "+8.4%" },
-    { label: "Reach", value: num(reach), sub: `Frequency ${freq.toFixed(2)}x`, trend: "up", delta: "+5.2%" },
-    { label: "CTR trung bình", value: pct(ctr), sub: "Blended toàn tài khoản", trend: "up", delta: "+1.5pt" },
-    { label: "Spend pacing", value: pct(spendPacing), sub: `Thời gian đã dùng ${avgTimePassedPct.toFixed(0)}%`, trend: "down", delta: `${(spendPacing - avgTimePassedPct).toFixed(0)}pt vs time` },
-    { label: "Quantity vs KPI", value: pct(deliveryPct), sub: `${num(actualDelivery)}/${num(plannedQuantity)} clicks`, trend: "up", delta: `CPC ${num(cpc)} ₫` },
+    {
+      label: "Impressions",
+      value: num(imp),
+      sub: `${num(clicks)} clicks`,
+      trend: "up",
+    },
+    {
+      label: "Reach",
+      value: num(reach),
+      sub: `Frequency ${freq.toFixed(2)}x`,
+      trend: "up",
+    },
+    {
+      label: "Average CTR",
+      value: pct(ctr),
+      sub: "Click-Through Rate",
+      trend: "up",
+    },
+    {
+      label: "Average ER",
+      value: pct(er),
+      sub: "Engagement Rate",
+      trend: "up",
+    },
+    {
+      label: "Total Clicks",
+      value: num(clicks),
+      sub: `CPC ${num(cpc)} ₫`,
+      trend: "up",
+      
+    },
+    {
+      label: "Total Views",
+      value: num(views),
+      sub: ``,
+      trend: "up",
+      delta: "+5.2%",
+    },
+    {
+      label: "Spending Optimization",
+      value: float(spendoptimize *100),
+      sub: `${pct(spendPacing)} chi tiêu được tối ưu`,
+      trend: "up",
+      delta: "+5.2%",
+    },
+    {
+      label: "Spend Pacing",
+      value: float(spendPacing * 100),
+      sub: `Thời gian đã dùng ${avgTimePassedPct.toFixed(0)}%`,
+      trend: "up",
+    },
   ];
 }
 
@@ -249,6 +316,12 @@ export type CampaignDeliveryRow = {
   buyingType: string;
   impressions: number;
   reach: number;
+  engagement: number;
+  view: number;
+  clicks: number;
+  linkclick: number;
+  landing: number;
+  er: number;
   ctr: number;
   verdict: Verdict;
   statusRaw: string;
@@ -314,17 +387,30 @@ export function campaignDeliveryRows(data: DataStatusRow[]): CampaignDeliveryRow
 
       const phaseCap = r.phase ? r.phase.charAt(0).toUpperCase() + r.phase.slice(1) : "—";
       const region = r.region || "National";
+      const asset = r.asset;
+      const engagement = r.engagements || 0;
+      const view = r.views || 0;
+      const clicks = r.clicks || 0;
+      const linkclick = r.link_clicks || 0;
+      const landing = r.landing_page_views || 0;
+      const impressions = r.impressions || 0;
 
       return {
         id: r.id,
-        label: `${platform} · ${phaseCap} · ${region}`,
+        label: `${platform} · ${phaseCap} · ${region} · ${asset} `,
         channel: r.channel,
         phase: phaseCap,
         region: region,
         buyingType: r.buying_type,
-        impressions: r.impressions || 0,
+        impressions,
         reach: r.reach || 0,
-        ctr: ctrOf(r.impressions || 0, r.clicks || 0),
+        engagement,
+        view,
+        clicks,
+        linkclick,
+        landing,
+        er: ctrOf(impressions, engagement),
+        ctr: ctrOf(impressions, clicks),
         verdict,
         statusRaw: raw,
       };
@@ -562,4 +648,74 @@ export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): Ca
   return [...map.values()]
     .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
     .sort((a, b) => a.campaignName.localeCompare(b.campaignName) || b.impressions - a.impressions);
+}
+
+export type AlertRow = {
+  key: string;
+  region: string;
+  channel: string;
+  buyingType: string;
+  asset: string;
+  statusLabel: string; // "behind" | "over cost" | "cost optimized nhưng time < 20%"
+  value: number; // % hiển thị (pacing_gap cho rule 1, cost_optimized_pct cho rule 2)
+};
+
+export type AlertGroups = {
+  laggingDelivery: AlertRow[]; // Rule 1: Chậm spending/delivery
+  overCost: AlertRow[]; // Rule 2: Chi phí vượt ngưỡng
+};
+
+/**
+ * Rule 1 — Chậm spending/delivery:
+ *   delivery_status chứa "behind"/"chậm"/"trễ"/"late" -> lấy pacing_gap làm giá trị hiển thị.
+ * Rule 2 — Chi phí vượt ngưỡng:
+ *   cost_status = "over" (vượt ngưỡng), HOẶC
+ *   cost_status = "cost optimized" NHƯNG time_passed_pct < 20% (tối ưu quá sớm/bất thường).
+ */
+export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
+  const laggingDelivery: AlertRow[] = [];
+  const overCost: AlertRow[] = [];
+
+  for (const r of data) {
+    const d = (r.delivery_status ?? "").toLowerCase();
+    const c = (r.cost_status ?? "").toLowerCase();
+    const timePassed = r.time_passed_pct ?? 0;
+
+    const isBehind = /behind|chậm|trễ|late/.test(d);
+    const isOverCost = /over|vượt|exceed/.test(c);
+    const isCostOptimized = /optimi[sz]ed|tối ưu/.test(c);
+
+    const region = r.region || "National";
+    const asset = r.asset || "general";
+
+    if (isBehind) {
+      laggingDelivery.push({
+        key: r.id,
+        region,
+        channel: r.channel,
+        buyingType: r.buying_type,
+        asset,
+        statusLabel: "behind",
+        value: r.pacing_gap ?? 0,
+      });
+    }
+
+    if (isOverCost || (isCostOptimized && timePassed < 20)) {
+      overCost.push({
+        key: r.id,
+        region,
+        channel: r.channel,
+        buyingType: r.buying_type,
+        asset,
+        statusLabel: isOverCost ? "over cost" : "cost optimized nhưng time < 20%",
+        value: r.cost_optimized_pct ?? 0,
+      });
+    }
+  }
+
+  // Ưu tiên hiển thị dòng lệch nhiều nhất lên đầu
+  laggingDelivery.sort((a, b) => a.value - b.value); // càng âm (trễ nhiều) càng lên đầu
+  overCost.sort((a, b) => b.value - a.value); // càng cao (vượt nhiều) càng lên đầu
+
+  return { laggingDelivery, overCost };
 }

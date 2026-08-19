@@ -2704,3 +2704,82 @@ tbody tr:hover {
 }
 .ok-icon { color: #4ade80; }
 .error-icon { color: #f66; }
+
+.alerts-intro {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.alert-group {
+  margin-bottom: 16px;
+}
+.alert-group strong {
+  display: block;
+  margin-bottom: 6px;
+}
+.alert-line {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: 2px 0;
+}
+.alert-empty {
+  font-size: 13px;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch; /* 2 card trong hàng cao bằng nhau */
+}
+
+.grid-2 > .card {
+  display: flex;
+  flex-direction: column;
+}
+
+.alerts {
+  flex: 1;
+  min-height: 0; /* bắt buộc để overflow hoạt động đúng trong flex container */
+  max-height: 480px; /* chỉnh theo chiều cao thực tế của chart doughnut bên cạnh */
+  overflow-y: auto;
+  padding-right: 8px; /* chừa chỗ cho scrollbar, tránh đè lên chữ */
+}
+
+/* Tùy chỉnh thanh cuộn cho đồng bộ theme tối */
+.alerts::-webkit-scrollbar {
+  width: 6px;
+}
+.alerts::-webkit-scrollbar-track {
+  background: transparent;
+}
+.alerts::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.alerts::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-muted);
+}
+
+.alerts-intro {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.alert-group {
+  margin-bottom: 16px;
+}
+.alert-group strong {
+  display: block;
+  margin-bottom: 6px;
+}
+.alert-line {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin: 2px 0;
+}
+.alert-empty {
+  font-size: 13px;
+  color: var(--fg-muted);
+  font-style: italic;
+}

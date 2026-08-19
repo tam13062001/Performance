@@ -57,8 +57,8 @@ export type KpiCard = {
   label: string
   value: string
   sub: string
-  trend: "up" | "down"
-  delta: string
+  trend?: "up" | "down"
+  delta?: string
 }
 
 function accountTotals(filter: PlatformFilter) {
