@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { project_code, source_type, url } = body as {
     project_code?: string;
-    source_type?: 'demographic_sem' | 'demographic_facebook';
+    source_type?: string;
     url?: string;
   };
 

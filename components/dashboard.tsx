@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ShareManager } from "./share-manager";
 import { Sidebar, navMeta, type PageId } from "./sidebar";
 import { ImportCenter } from "./import-center";
 import { ProjectsPage } from "./projects-page";
@@ -350,7 +351,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
 }
 
 /* ---------------- Campaign Overview ---------------- */
-function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
+export function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const { loading, error, kpis, signals, score, campaignRows, data, biz } = usePlanData(projectCode, periodMonth);
   const alertGroups = useMemo(() => deliveryAlertGroups(data), [data]);
   const bizRows = biz("phase");
@@ -499,7 +500,7 @@ const bizTabs: { id: BusinessDimension; label: string }[] = [
   { id: "buying_type", label: "Buying Type" },
 ];
 
-function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
+export function BusinessPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const [dim, setDim] = useState<BusinessDimension>("phase");
   const { loading, biz } = usePlanData(projectCode, periodMonth);
   const rows = biz(dim);
@@ -680,7 +681,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
   );
 }
 
-function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta"; periodMonth: string; planView: "MTD" | "YTD" }) {
+export function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta"; periodMonth: string; planView: "MTD" | "YTD" }) {
   const isGoogle = platform === "Google";
   const levels = [
     { id: "campaign", label: "Campaign" },
@@ -696,8 +697,8 @@ function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { pr
       <div className={`channel-banner ${isGoogle ? "google" : "meta"}`}>
         <div>
           <span>Channel dashboard</span>
-          <h2>{isGoogle ? "Google Ads" : "Meta + TikTok Ads"}</h2>
-          <p>{isGoogle ? "Campaign, Ad Group Performance (SEM + YouTube)." : "Campaign, Ad Set Performance (Facebook + TikTok)."}</p>
+          <h2>{isGoogle ? "Google Ads" : "Meta Ads"}</h2>
+          <p>{isGoogle ? "Campaign, Ad Group Performance (SEM)." : "Campaign, Ad Set Performance (Facebook + TikTok)."}</p>
         </div>
         {isGoogle ? <Search size={40} /> : <Share2 size={40} />}
       </div>
@@ -953,7 +954,7 @@ const demoTabs: { id: "age" | "gender" | "region"; label: string }[] = [
   { id: "region", label: "Khu vực" },
 ];
 
-function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
+export function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const [dim, setDim] = useState<"age" | "gender" | "region">("age");
   const [view, setView] = useState<"value" | "campaign">("value");
   const [rows, setRows] = useState<DemographicRow[]>([]);
@@ -1113,7 +1114,7 @@ function AudiencePage({ projectCode, periodMonth }: { projectCode: string; perio
 }
 
 /* ---------------- Plan page ---------------- */
-function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
+export function PlanPage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const { loading, planRows } = usePlanData(projectCode, periodMonth);
 
   const { currentPage, setCurrentPage, totalPages, currentData: pagedPlanRows } = usePagination(planRows, 10);
@@ -1162,6 +1163,7 @@ export function Dashboard() {
   const [planView, setPlanView] = useState<"MTD" | "YTD">("YTD");
   const [month, setMonth] = useState<string>("");
   const [uiTheme, setUiTheme] = useState<"dark" | "light">("dark");
+  const [showShareModal, setShowShareModal] = useState(false);
   const { projects, activeProject, activeId, setActiveId, addProject, editProject, removeProject, updateTheme, hydrated } = useProjects();
   const meta = navMeta(page);
 
@@ -1220,6 +1222,25 @@ export function Dashboard() {
             <p>{meta.desc}</p>
           </div>
           <div className="header-controls">
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                color: "var(--fg)",
+                padding: "8px 14px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                cursor: "pointer",
+              }}
+            >
+              <Share2 size={15} />
+              Share
+            </button>
             <label className="period-select">
               <span>Plan view</span>
               <select value={planView} onChange={(e) => setPlanView(e.target.value as "MTD" | "YTD")}>
@@ -1260,10 +1281,59 @@ export function Dashboard() {
           {page === "google" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
           {page === "meta" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
           {page === "taxonomy" && periodMonth && dbProjectCode && <PlanPage projectCode={dbProjectCode} periodMonth={periodMonth} />}
+
           {page === "import" && <ImportCenter />}
           {page === "reports" && <ReportBuilder project={activeProject} onChange={(patch) => updateTheme(activeId, patch)} />}
         </section>
       </main>
+
+      {showShareModal && (
+        <div
+          onClick={() => setShowShareModal(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "24px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 640,
+              width: "100%",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              position: "relative",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowShareModal(false)}
+              aria-label="Đóng"
+              style={{
+                position: "absolute",
+                top: "12px",
+                right: "12px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: "6px",
+                padding: "6px",
+                cursor: "pointer",
+                color: "var(--fg)",
+                zIndex: 1,
+              }}
+            >
+              <X size={16} />
+            </button>
+            <ShareManager projectCode={dbProjectCode} />
+          </div>
+        </div>
+      )}
     </ClientThemeContext.Provider>
   );
 }

@@ -110,3 +110,37 @@ export function parseSheetDate(raw: unknown): string | null {
 
   return null;
 }
+
+function normalizeHeader(h: string): string {
+  return String(h ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+/**
+ * Nhận rows thô từ Google Sheets (rows[0] = header), trả về:
+ * - headerMap: tên cột đã normalize -> index
+ * - dataRows: các dòng data (đã bỏ header)
+ */
+export function indexByHeader(rows: any[][]): { headerMap: Record<string, number>; dataRows: any[][] } {
+  const headerMap: Record<string, number> = {};
+  const header = rows[0] ?? [];
+  header.forEach((h, i) => {
+    const key = normalizeHeader(h);
+    if (key) headerMap[key] = i;
+  });
+  return { headerMap, dataRows: rows.slice(1) };
+}
+
+/**
+ * Field accessor hỗ trợ nhiều alias (vì tên cột có thể viết khác nhau
+ * giữa các project, vd "Reach" vs "reach" vs "Total Reach").
+ */
+export function makeFieldGetter(headerMap: Record<string, number>, row: any[]) {
+  return (aliases: string | string[]): any => {
+    const list = Array.isArray(aliases) ? aliases : [aliases];
+    for (const a of list) {
+      const idx = headerMap[normalizeHeader(a)];
+      if (idx !== undefined) return row[idx];
+    }
+    return undefined;
+  };
+}

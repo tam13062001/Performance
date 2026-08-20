@@ -167,7 +167,7 @@ export function ProjectsPage({
     const form = new FormData(e.currentTarget)
     const payload = {
       project_code: sourceProject.code,
-      source_type: String(form.get("source_type")),
+      source_type: String(form.get("source_type")).trim().toLowerCase(),
       url: String(form.get("url"))
     }
     
@@ -458,10 +458,21 @@ export function ProjectsPage({
               
               <label>
                 <span>Loại dữ liệu *</span>
-                <select name="source_type" required>
-                  <option value="demographic_facebook">Demographic Facebook</option>
-                  <option value="demographic_sem">Demographic SEM</option>
-                </select>
+                <input
+                  name="source_type"
+                  required
+                  list="source-type-suggestions"
+                  placeholder="VD: demographic_facebook"
+                  pattern="[a-z0-9_]+"
+                  title="Chỉ dùng chữ thường, số và dấu gạch dưới (_)"
+                />
+                <datalist id="source-type-suggestions">
+                  <option value="demographic_facebook" />
+                  <option value="demographic_sem" />
+                  <option value="demographic_tiktok" />
+                  <option value="raw_google" />
+                  <option value="raw_meta" />
+                </datalist>
               </label>
               
               <label className="full">
