@@ -8,9 +8,21 @@ type ShareLink = {
   slug: string;
   label: string | null;
   allowedPages: SharePageId[];
+  theme: { primary: string; secondary: string; accent: string } | null;
   createdAt: string;
   revokedAt: string | null;
 };
+
+const COLOR_PALETTE: { name: string; primary: string; secondary: string; accent: string }[] = [
+  { name: "Indigo", primary: "#6366f1", secondary: "#22d3ee", accent: "#f97316" },
+  { name: "Xanh dương", primary: "#2563eb", secondary: "#38bdf8", accent: "#f59e0b" },
+  { name: "Xanh lá", primary: "#16a34a", secondary: "#4ade80", accent: "#facc15" },
+  { name: "Tím", primary: "#9333ea", secondary: "#c084fc", accent: "#ec4899" },
+  { name: "Đỏ cam", primary: "#dc2626", secondary: "#fb923c", accent: "#fde047" },
+  { name: "Hồng", primary: "#db2777", secondary: "#f472b6", accent: "#a3e635" },
+  { name: "Than chì", primary: "#334155", secondary: "#64748b", accent: "#38bdf8" },
+  { name: "Ngọc lam", primary: "#0d9488", secondary: "#2dd4bf", accent: "#fb7185" },
+];
 
 export function ShareManager({ projectCode }: { projectCode: string }) {
   const [links, setLinks] = useState<ShareLink[]>([]);
@@ -21,6 +33,10 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
   const [creating, setCreating] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [useCustomTheme, setUseCustomTheme] = useState(false);
+  const [primaryColor, setPrimaryColor] = useState("#6366f1");
+  const [secondaryColor, setSecondaryColor] = useState("#22d3ee");
+  const [accentColor, setAccentColor] = useState("#f97316");
 
   const load = () => {
     setLoading(true);
@@ -56,6 +72,9 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           allowedPages: selectedPages,
           label: label || undefined,
           password: password || undefined,
+          theme: useCustomTheme
+            ? { primary: primaryColor, secondary: secondaryColor, accent: accentColor }
+            : undefined,
         }),
       });
       const json = await res.json();
@@ -122,6 +141,80 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--fg)" }}
         />
 
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--fg-muted)", cursor: "pointer", marginBottom: useCustomTheme ? 12 : 0 }}>
+            <input type="checkbox" checked={useCustomTheme} onChange={(e) => setUseCustomTheme(e.target.checked)} />
+            Tùy chỉnh màu riêng cho link này
+          </label>
+
+          {useCustomTheme && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <p style={{ fontSize: 12, color: "var(--fg-muted)", marginBottom: 8 }}>Chọn bảng màu có sẵn:</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {COLOR_PALETTE.map((p) => {
+                    const isSelected = primaryColor === p.primary && secondaryColor === p.secondary && accentColor === p.accent;
+                    return (
+                      <button
+                        key={p.name}
+                        type="button"
+                        onClick={() => {
+                          setPrimaryColor(p.primary);
+                          setSecondaryColor(p.secondary);
+                          setAccentColor(p.accent);
+                        }}
+                        title={p.name}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: isSelected ? "2px solid var(--fg)" : "1px solid var(--border)",
+                          background: "transparent",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <span style={{ display: "flex" }}>
+                          <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.primary, marginRight: -4, border: "1px solid rgba(0,0,0,0.15)" }} />
+                          <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.secondary, marginRight: -4, border: "1px solid rgba(0,0,0,0.15)" }} />
+                          <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.accent, border: "1px solid rgba(0,0,0,0.15)" }} />
+                        </span>
+                        <span style={{ fontSize: 12, color: "var(--fg)" }}>{p.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p style={{ fontSize: 12, color: "var(--fg-muted)", marginBottom: 8 }}>Hoặc tự chọn từng màu:</p>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                    Primary
+                    <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                    Secondary
+                    <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                    Accent
+                    <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>Xem trước:</span>
+                <span style={{ width: 20, height: 20, borderRadius: 6, background: primaryColor }} />
+                <span style={{ width: 20, height: 20, borderRadius: 6, background: secondaryColor }} />
+                <span style={{ width: 20, height: 20, borderRadius: 6, background: accentColor }} />
+              </div>
+            </div>
+          )}
+        </div>
+
         {error && <p style={{ color: "#e5484d", fontSize: 13 }}>{error}</p>}
 
         <button
@@ -145,7 +238,16 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                   {l.label ? <b>{l.label}</b> : null}
                   <div>/share/{l.slug}</div>
                 </td>
-                <td>{l.allowedPages.map((id) => SHAREABLE_PAGES.find((p) => p.id === id)?.label ?? id).join(", ")}</td>
+                <td>
+                  {l.allowedPages.map((id) => SHAREABLE_PAGES.find((p) => p.id === id)?.label ?? id).join(", ")}
+                  {l.theme && (
+                    <span style={{ display: "inline-flex", gap: 3, marginLeft: 8, verticalAlign: "middle" }}>
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.primary, display: "inline-block" }} />
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.secondary, display: "inline-block" }} />
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.accent, display: "inline-block" }} />
+                    </span>
+                  )}
+                </td>
                 <td>{l.revokedAt ? "Đã thu hồi" : "Đang hoạt động"}</td>
                 <td style={{ display: "flex", gap: 8 }}>
                   {!l.revokedAt && (

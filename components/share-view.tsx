@@ -11,6 +11,7 @@ import {
   useAvailableMonths,
 } from "./dashboard";
 import { SHAREABLE_PAGES, type SharePageId } from "@/lib/share-pages";
+import { applyProjectTheme, ClientThemeContext, DEFAULT_THEME } from "@/lib/theme";
 
 type ShareMeta = {
   authed: boolean;
@@ -18,6 +19,7 @@ type ShareMeta = {
   projectLabel: string;
   allowedPages: SharePageId[];
   label: string | null;
+  theme: { primary: string; secondary: string; accent: string } | null;
 };
 
 function PasswordGate({ slug, onAuthed }: { slug: string; onAuthed: () => void }) {
@@ -90,6 +92,18 @@ export function ShareView({ slug }: { slug: string }) {
   const availableMonths = useAvailableMonths(projectCode);
 
   useEffect(() => {
+    if (meta?.theme) {
+      applyProjectTheme({
+        ...DEFAULT_THEME,
+        preset: "client-branded",
+        primary: meta.theme.primary,
+        secondary: meta.theme.secondary,
+        accent: meta.theme.accent,
+      });
+    }
+  }, [meta]);
+
+  useEffect(() => {
     if (availableMonths.length > 0 && !availableMonths.includes(month)) {
       setMonth(availableMonths[0]);
     }
@@ -138,7 +152,10 @@ export function ShareView({ slug }: { slug: string }) {
   const periodLabel = planView === "YTD" ? "YTD" : month || "—";
   const pages = SHAREABLE_PAGES.filter((p) => meta.allowedPages.includes(p.id));
 
+  const themeContextValue = meta.theme ?? { primary: "#6366f1", secondary: "#22d3ee", accent: "#f97316" };
+
   return (
+    <ClientThemeContext.Provider value={themeContextValue}>
     <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
       <header className="topbar">
         <div>
@@ -188,5 +205,6 @@ export function ShareView({ slug }: { slug: string }) {
         {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
       </section>
     </main>
+    </ClientThemeContext.Provider>
   );
 }

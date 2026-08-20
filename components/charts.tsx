@@ -270,8 +270,8 @@ export function VolumeBarChart({
           // Cắt ngắn nhãn trên trục X bằng biến maxLabelLength
           callback: function (value: any, index: number) {
             const originalLabel = labels[index] || "";
-            // Đã xóa biến maxLength = 4 ở đây và dùng thẳng maxLabelLength
-            if (originalLabel.length > maxLabelLength) {
+            // Chỉ cắt ngắn khi có nhiều hơn 2 nhãn — ít nhãn thì hiển thị full text cho dễ đọc
+            if (labels.length > 2 && originalLabel.length > maxLabelLength) {
               return originalLabel.substring(0, maxLabelLength) + "…";
             }
             return originalLabel;
@@ -358,14 +358,24 @@ export function RateLineChart({
         callback: function (value: any, index: number) {
           const originalLabel = labels[index] || "";
           
-          // Sử dụng prop maxLabelLength để cắt chữ
-          if (originalLabel.length > maxLabelLength) {
+          // Chỉ cắt ngắn khi có nhiều hơn 2 nhãn — ít nhãn thì hiển thị full text cho dễ đọc
+          if (labels.length > 2 && originalLabel.length > maxLabelLength) {
             return originalLabel.substring(0, maxLabelLength) + "…";
           }
           return originalLabel;
         },
       },
     },
+    y: {
+      ...(baseScales.y || {}),
+      beginAtZero: true, // <--- Bắt buộc trục Y bên trái bắt đầu từ 0
+    },
+    ...(baseScales.y1 && {
+      y1: {
+        ...baseScales.y1,
+        beginAtZero: true, // <--- Bắt buộc trục Y bên phải (nếu có frequency) bắt đầu từ 0
+      }
+    })
   };
 
   const bOptions = baseOptions();

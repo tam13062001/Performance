@@ -668,6 +668,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
                   <td className="right">{r.reach !== null ? num(r.reach) : "—"}</td>
                   <td className="right">{num(r.clicks)}</td>
                   <td className="right">{pct(r.ctr)}</td>
+          
                   <td className="right">{vnd(r.spend)}</td>
                 </tr>
               ))}

@@ -15,14 +15,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { projectCode, allowedPages, label, password } = body ?? {};
+  const { projectCode, allowedPages, label, password, theme } = body ?? {};
 
   if (!projectCode || !Array.isArray(allowedPages) || allowedPages.length === 0) {
     return NextResponse.json({ error: 'Thiếu projectCode hoặc allowedPages' }, { status: 400 });
   }
 
   try {
-    const link = await createShareLink({ projectCode, allowedPages, label, password });
+    const link = await createShareLink({ projectCode, allowedPages, label, password, theme });
     return NextResponse.json({ link });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

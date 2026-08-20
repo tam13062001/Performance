@@ -18,5 +18,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     projectLabel: link.projectLabel,
     allowedPages: link.allowedPages,
     label: link.label,
+    theme: link.theme,
   });
 }
