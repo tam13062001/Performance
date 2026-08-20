@@ -698,7 +698,7 @@ export function ChannelDashboard({ projectCode, platform, periodMonth, planView 
         <div>
           <span>Channel dashboard</span>
           <h2>{isGoogle ? "Google Ads" : "Meta Ads"}</h2>
-          <p>{isGoogle ? "Campaign, Ad Group Performance (SEM)." : "Campaign, Ad Set Performance (Facebook + TikTok)."}</p>
+          <p>{isGoogle ? "Campaign, Ad Group Performance (SEM)." : "Campaign, Ad Set Performance (Facebook)."}</p>
         </div>
         {isGoogle ? <Search size={40} /> : <Share2 size={40} />}
       </div>
