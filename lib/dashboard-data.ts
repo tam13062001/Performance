@@ -804,7 +804,7 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
   for (const r of data) {
     const d = (r.delivery_status ?? "").toLowerCase();
     const c = (r.cost_status ?? "").toLowerCase();
-    const timePassed = r.time_passed_pct ?? 0;
+    const costOptimizedPct = r.cost_optimized_pct ?? 0; // <-- dùng cost_optimized_pct (đúng nghĩa "T" theo rule), không phải cost_optimized (giá trị thô) hay time_passed_pct
 
     const isBehind = /behind|chậm|trễ|late/.test(d);
     const isOverCost = /over|vượt|exceed/.test(c);
@@ -825,21 +825,22 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
       });
     }
 
-    if (isOverCost || (isCostOptimized && timePassed < 20)) {
+    // Rule (ảnh 1): Alert khi W = over cost, HOẶC W = cost optimized nhưng T (cost_optimized_pct) < 20
+    if (isOverCost || (isCostOptimized && costOptimizedPct < 20)) {
       overCost.push({
         key: r.id,
         region,
         channel: r.channel,
         buyingType: r.buying_type,
         asset,
-        statusLabel: isOverCost ? "over cost" : "cost optimized nhưng cost_optimized_pct < 20",
-        value: r.cost_optimized_pct ?? 0,
+        statusLabel: isOverCost ? "over cost" : `cost optimized nhưng cost_optimized_pct ${costOptimizedPct.toFixed(2)} < 20`,
+        value: costOptimizedPct,
       });
     }
   }
 
   laggingDelivery.sort((a, b) => a.value - b.value);
-  overCost.sort((a, b) => b.value - a.value);
+  overCost.sort((a, b) => a.value - b.value); // sort tăng dần để campaign đáng lo nhất (pct thấp nhất) hiện lên đầu
 
   return { laggingDelivery, overCost };
 }
