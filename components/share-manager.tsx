@@ -24,15 +24,13 @@ const COLOR_PALETTE: { name: string; primary: string; secondary: string; accent:
   { name: "Ngọc lam", primary: "#0d9488", secondary: "#2dd4bf", accent: "#fb7185" },
 ];
 
-// Bảng màu cố định cho modal này — không phụ thuộc theme sáng/tối của site,
-// để tránh trường hợp biến CSS theo theme làm chữ bị "mất" (trùng màu nền).
 const C = {
-  text: "#111827",       // chữ chính
-  textMuted: "#6b7280",  // chữ phụ
-  border: "#e5e7eb",     // viền
-  bg: "#ffffff",         // nền input
+  text: "#111827",
+  textMuted: "#6b7280",
+  border: "#e5e7eb",
+  bg: "#ffffff",
   danger: "#dc2626",
-  accent: "#111827",     // màu nút chính (đen), đổi lại nếu muốn theo brand
+  accent: "#111827",
   accentText: "#ffffff",
 };
 
@@ -285,53 +283,75 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
         </button>
       </div>
 
-      <div className="table-wrap">
-        <table style={{ color: C.text }}>
+      <div className="table-wrap" style={{ padding: "0 4px 4px" }}>
+        <table
+          style={{
+            color: C.text,
+            width: "100%",
+            borderCollapse: "collapse",
+            tableLayout: "fixed",
+          }}
+        >
+          <colgroup>
+            <col style={{ width: "26%" }} />
+            <col style={{ width: "38%" }} />
+            <col style={{ width: "18%" }} />
+            <col style={{ width: "18%" }} />
+          </colgroup>
           <thead>
-            <tr style={{ color: C.textMuted }}>
-              <th>Link</th>
-              <th>Nội dung</th>
-              <th>Trạng thái</th>
-              <th></th>
+            <tr style={{ color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>
+              <th style={{ textAlign: "left", padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>Link</th>
+              <th style={{ textAlign: "left", padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>Nội dung</th>
+              <th style={{ textAlign: "left", padding: "10px 12px", fontSize: 12, fontWeight: 600 }}>Trạng thái</th>
+              <th style={{ textAlign: "right", padding: "10px 12px", fontSize: 12, fontWeight: 600 }}></th>
             </tr>
           </thead>
           <tbody>
             {links.map((l) => (
-              <tr key={l.slug} style={{ opacity: l.revokedAt ? 0.55 : 1, color: C.text }}>
-                <td className="mono" style={{ color: C.text }}>
-                  {l.label ? <b>{l.label}</b> : null}
-                  <div style={{ color: C.textMuted }}>/share/{l.slug}</div>
+              <tr
+                key={l.slug}
+                style={{
+                  opacity: l.revokedAt ? 0.55 : 1,
+                  color: C.text,
+                  borderBottom: `1px solid ${C.border}`,
+                }}
+              >
+                <td className="mono" style={{ color: C.text, padding: "10px 12px", verticalAlign: "top", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {l.label ? <b style={{ display: "block", marginBottom: 2 }}>{l.label}</b> : null}
+                  <div style={{ color: C.textMuted, fontSize: 12, whiteSpace: "normal", wordBreak: "break-all" }}>/share/{l.slug}</div>
                 </td>
-                <td style={{ color: C.text }}>
-                  {l.allowedPages.map((id) => SHAREABLE_PAGES.find((p) => p.id === id)?.label ?? id).join(", ")}
+                <td style={{ color: C.text, padding: "10px 12px", verticalAlign: "top" }}>
+                  <div>{l.allowedPages.map((id) => SHAREABLE_PAGES.find((p) => p.id === id)?.label ?? id).join(", ")}</div>
                   {l.theme && (
-                    <span style={{ display: "inline-flex", gap: 3, marginLeft: 8, verticalAlign: "middle" }}>
+                    <span style={{ display: "inline-flex", gap: 3, marginTop: 6 }}>
                       <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.primary, display: "inline-block" }} />
                       <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.secondary, display: "inline-block" }} />
                       <span style={{ width: 10, height: 10, borderRadius: "50%", background: l.theme.accent, display: "inline-block" }} />
                     </span>
                   )}
                 </td>
-                <td style={{ color: l.revokedAt ? C.textMuted : "#16a34a" }}>
+                <td style={{ color: l.revokedAt ? C.textMuted : "#16a34a", padding: "10px 12px", verticalAlign: "top", fontWeight: 600, fontSize: 13 }}>
                   {l.revokedAt ? "Đã thu hồi" : "Đang hoạt động"}
                 </td>
-                <td style={{ display: "flex", gap: 8 }}>
-                  {!l.revokedAt && (
-                    <>
+                <td style={{ padding: "10px 12px", verticalAlign: "top", textAlign: "right" }}>
+                  {!l.revokedAt ? (
+                    <div style={{ display: "inline-flex", gap: 8 }}>
                       <button onClick={() => copyLink(l.slug)} title="Copy link" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.text }}>
                         {copiedSlug === l.slug ? <Check size={14} /> : <Copy size={14} />}
                       </button>
                       <button onClick={() => revoke(l.slug)} title="Thu hồi" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.danger }}>
                         <Trash2 size={14} />
                       </button>
-                    </>
+                    </div>
+                  ) : (
+                    <span style={{ color: C.textMuted, fontSize: 12 }}>—</span>
                   )}
                 </td>
               </tr>
             ))}
             {!loading && links.length === 0 && (
               <tr>
-                <td colSpan={4} style={{ color: C.textMuted }}>Chưa có link share nào.</td>
+                <td colSpan={4} style={{ color: C.textMuted, padding: "16px 12px" }}>Chưa có link share nào.</td>
               </tr>
             )}
           </tbody>
