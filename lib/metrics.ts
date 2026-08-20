@@ -423,7 +423,7 @@ export function platformImpressions() {
   return { google, meta, total: google + meta }
 }
 
-// Blended performance score (0-100) from campaign verdicts vs plan.
+// Blended Performance Index (0-100) from campaign verdicts vs plan.
 export function performanceScore(filter: PlatformFilter): number {
   const rows = overviewCampaignRows(filter)
   const scored = rows.filter((r) => r.verdict !== "Chưa map")

@@ -383,7 +383,7 @@ export function ReportBuilder({
                 </div>
                 <div className="rp-score">
                   <b>{score}</b>
-                  <span>Performance Score</span>
+                  <span>Performance Index</span>
                 </div>
               </header>
 

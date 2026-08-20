@@ -163,9 +163,8 @@ export function ShareView({ slug }: { slug: string }) {
             <img 
                 src="/Rocket Group Logo.png" 
                 alt="Logo" 
-                style={{ height: 18, width: "auto", objectFit: "contain" }} 
+                style={{ height: 36, width: "auto", objectFit: "contain" }} 
             />
-            <span>Báo cáo được chia sẻ</span>
           </div>
           <h1>{meta.projectLabel}</h1>
           {meta.label && <p>{meta.label}</p>}

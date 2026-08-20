@@ -193,13 +193,11 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
     {
       label: "Impressions",
       value: num(imp),
-      sub: `${num(clicks)} clicks`,
       trend: "up",
     },
     {
       label: "Reach",
       value: num(reach),
-      sub: `Frequency ${freq.toFixed(2)}x`,
       trend: "up",
     },
     {
@@ -225,19 +223,15 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
       value: num(views),
       sub: ``,
       trend: "up",
-      delta: "+5.2%",
     },
     {
       label: "Spending Optimization",
       value: float(spendoptimize *100),
-      sub: `${pct(spendPacing)} chi tiêu được tối ưu`,
       trend: "up",
-      delta: "+5.2%",
     },
     {
       label: "Spend Pacing",
       value: float(spendPacing * 100),
-      sub: `Thời gian đã dùng ${avgTimePassedPct.toFixed(0)}%`,
       trend: "up",
     },
   ];
@@ -797,7 +791,7 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
         channel: r.channel,
         buyingType: r.buying_type,
         asset,
-        statusLabel: isOverCost ? "over cost" : "cost optimized nhưng time < 20%",
+        statusLabel: isOverCost ? "over cost" : "cost optimized nhưng cost_optimized_pct < 20",
         value: r.cost_optimized_pct ?? 0,
       });
     }

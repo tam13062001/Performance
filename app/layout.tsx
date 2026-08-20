@@ -9,8 +9,8 @@ const jakarta = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'Rocket Performance — Google Ads Search',
-  description: 'Dashboard theo dõi hiệu suất Google Ads Search theo KPI tháng',
+  title: 'Rocket Performance Center - The Intelligence Behind Every Campaign',
+  description: 'Google Ads SearchDashboard theo dõi hiệu suất Google Ads Search theo KPI tháng',
   generator: 'v0.app',
 }
 

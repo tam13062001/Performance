@@ -239,7 +239,7 @@ function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessB
           frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))}
         />
       </div>
-      <ChartInsights
+      {/* <ChartInsights
         spec={{
           title: "Impressions, CTR & Frequency theo Phase",
           subject: "volume & efficiency theo phase",
@@ -249,7 +249,7 @@ function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessB
           ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))),
           frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))),
         }}
-      />
+      /> */}
     </article>
   );
 }
@@ -334,7 +334,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
           frequency={series.map((m) => Number(m.frequency.toFixed(2)))}
         />
       </div>
-      <ChartInsights
+      {/* <ChartInsights
         spec={{
           title: "Volume & efficiency theo tháng",
           subject: `xu hướng theo tháng · ${scope}`,
@@ -345,7 +345,7 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
           frequency: series.map((m) => Number(m.frequency.toFixed(2))),
           spend: series.map((m) => m.spend),
         }}
-      />
+      /> */}
     </article>
   );
 }
@@ -377,13 +377,13 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
     <>
       <div className="hero">
         <div>
-          <span className="eyebrow"><Sparkles size={13} /> Campaign control center</span>
-          <h2>Một góc nhìn thống nhất để theo dõi toàn bộ campaign trước khi đi sâu vào từng kênh.</h2>
-          <p>Overview tập trung vào plan, delivery, business dimensions và cảnh báo theo kỳ {periodMonth}.</p>
+          <span className="eyebrow"><Sparkles size={13} /> CAMPAIGN INTELLIGENCE CENTER</span>
+          <h2>Toàn cảnh hiệu suất. Một nơi duy nhất. Theo thời gian thực.</h2>
+          <p>Theo dõi tiến độ, hiệu quả của toàn bộ chiến dịch - từ kế hoạch đến từng kênh triển khai.</p>
         </div>
         <div className="hero-badge">
           <b>{score}</b>
-          <span>Performance Score</span>
+          <span>Performance Index</span>
         </div>
       </div>
 
@@ -398,7 +398,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <VolumeBarChart labels={bizRows.map((b) => b.label)} impressions={bizRows.map((b) => b.impressions)} reach={bizRows.map((b) => b.reach)} />
           </div>
-          <ChartInsights spec={{ title: "Impressions theo Phase", subject: "volume delivery theo phase", labels: bizRows.map((b) => b.label), volume: bizRows.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+          {/* <ChartInsights spec={{ title: "Impressions theo Phase", subject: "volume delivery theo phase", labels: bizRows.map((b) => b.label), volume: bizRows.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
 
         <article className="card">
@@ -409,7 +409,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <RateLineChart labels={bizRows.map((b) => b.label)} ctr={bizRows.map((b) => Number(b.ctr.toFixed(2)))} frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))} />
           </div>
-          <ChartInsights spec={{ title: "CTR & Frequency theo Phase", subject: "hiệu suất theo phase", labels: bizRows.map((b) => b.label), ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))), frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))) }} />
+          {/* <ChartInsights spec={{ title: "CTR & Frequency theo Phase", subject: "hiệu suất theo phase", labels: bizRows.map((b) => b.label), ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))), frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))) }} /> */}
         </article>
       </div>
       <PhaseEfficiencyCard bizRows={bizRows} />
@@ -437,7 +437,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             <p className="alerts-intro">Alert các vấn đề sau</p>
 
             <div className="alert-group">
-              <strong>1. Chậm spending/ delivery (V + Q)</strong>
+              <strong>1. Chậm spending/ delivery</strong>
               {alertGroups.laggingDelivery.length === 0 ? (
                 <p className="alert-empty">Không có campaign nào bị chậm delivery.</p>
               ) : (
@@ -446,7 +446,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             </div>
 
             <div className="alert-group">
-              <strong>2. Chi phí vượt ngưỡng (W + T)</strong>
+              <strong>2. Chi phí vượt ngưỡng</strong>
               {alertGroups.overCost.length === 0 ? (
                 <p className="alert-empty">Không có campaign nào vượt ngưỡng chi phí.</p>
               ) : (
@@ -536,7 +536,7 @@ export function BusinessPage({ projectCode, periodMonth, planView }: { projectCo
             frequency={rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2)))}
           />
         </div>
-        <ChartInsights
+        {/* <ChartInsights
           spec={{
             title: `Impressions, CTR & Frequency theo ${label}`,
             subject: `volume & efficiency theo ${label?.toLowerCase()}`,
@@ -546,7 +546,7 @@ export function BusinessPage({ projectCode, periodMonth, planView }: { projectCo
             ctr: rows.map((r) => Number(r.ctr.toFixed(2))),
             frequency: rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2))),
           }}
-        />
+        /> */}
       </article>
 
       {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
@@ -640,7 +640,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
             />
           </div>
           {/* LƯU Ý: ChartInsights vẫn nhận full tên (r.name) để AI đọc được chính xác dữ liệu */}
-          <ChartInsights spec={{ title: `Impressions${showReach ? " & Reach" : ""} · ${platform}`, subject: `volume theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} />
+          {/* <ChartInsights spec={{ title: `Impressions${showReach ? " & Reach" : ""} · ${platform}`, subject: `volume theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
 
         <article className="card mt-2">
@@ -652,7 +652,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
               maxLabelLength={4}
             />
           </div>
-          <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} />
+          {/* <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 
@@ -790,14 +790,14 @@ function PlatformAudienceSection({
           <div className="chart-wrap large">
             <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
           </div>
-          <ChartInsights spec={{ title: `Impressions theo ${label} · ${platform}`, subject: `audience theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+          {/* <ChartInsights spec={{ title: `Impressions theo ${label} · ${platform}`, subject: `audience theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
         <article className="card">
           <div className="card-head"><div><small>Rate</small><h3>CTR theo {label} · {platform}</h3></div></div>
           <div className="chart-wrap large">
             <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
           </div>
-          <ChartInsights spec={{ title: `CTR theo ${label} · ${platform}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} />
+          {/* <ChartInsights spec={{ title: `CTR theo ${label} · ${platform}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 
@@ -911,7 +911,7 @@ function KeywordsSection({ projectCode }: { projectCode: string }) {
         <div className="chart-wrap large">
           <VolumeBarChart labels={breakdown.slice(0, 15).map((b) => b.label)} impressions={breakdown.slice(0, 15).map((b) => b.impressions)} />
         </div>
-        <ChartInsights spec={{ title: "Top keyword theo Clicks", subject: "hiệu suất search term", labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+        {/* <ChartInsights spec={{ title: "Top keyword theo Clicks", subject: "hiệu suất search term", labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
       </article>
 
       <article className="card">
@@ -1008,14 +1008,14 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
           <div className="chart-wrap large">
             <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
           </div>
-          <ChartInsights spec={{ title: `Impressions theo ${label}`, subject: `audience theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} />
+          {/* <ChartInsights spec={{ title: `Impressions theo ${label}`, subject: `audience theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
         <article className="card">
           <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
           <div className="chart-wrap large">
             <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
           </div>
-          <ChartInsights spec={{ title: `CTR theo ${label}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} />
+          {/* <ChartInsights spec={{ title: `CTR theo ${label}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 

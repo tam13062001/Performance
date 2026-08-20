@@ -295,7 +295,7 @@ main {
 .eyebrow {
   font-size: 11px;
   letter-spacing: 0.14em;
-  color: var(--brand-2);
+  color: white;
   font-weight: 700;
 }
 .topbar h1 {
@@ -2782,4 +2782,224 @@ tbody tr:hover {
   font-size: 13px;
   color: var(--fg-muted);
   font-style: italic;
+}
+.container {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  background: #030712;
+}
+
+/* Cột trái - branding */
+.brandSide {
+  display: none;
+  position: relative;
+  overflow: hidden;
+  width: 50%;
+  background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+  align-items: center;
+  justify-content: center;
+}
+
+.brandSide::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 30% 20%, rgba(99, 102, 241, 0.35), transparent 50%);
+}
+
+.brandContent {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 0 3rem;
+}
+
+.brandIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1.5rem;
+}
+
+.brandTitle {
+  font-size: 1.875rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 0.75rem;
+}
+
+.brandDesc {
+  font-size: 0.875rem;
+  color: #94a3b8;
+  max-width: 20rem;
+  margin: 0 auto;
+}
+
+/* Cột phải - form */
+.formSide {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  padding: 3rem 1.5rem;
+}
+
+.form {
+  width: 100%;
+  max-width: 24rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.mobileIcon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.mobileIconBox {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #111827;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header {
+  text-align: center;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-top: 0.25rem;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.input::placeholder {
+  color: #9ca3af;
+}
+
+.input:focus {
+  border-color: transparent;
+  box-shadow: 0 0 0 2px #111827;
+}
+
+.passwordWrapper {
+  position: relative;
+}
+
+.passwordInput {
+  padding-right: 2.5rem;
+}
+
+.toggleBtn {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.toggleBtn:hover {
+  color: #4b5563;
+}
+
+.error {
+  font-size: 0.875rem;
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+}
+
+.submitBtn {
+  width: 100%;
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: #1f2937;
+}
+
+.submitBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Responsive: hiện cột branding trên màn lớn */
+@media (min-width: 1024px) {
+  .brandSide {
+    display: flex;
+  }
+
+  .mobileIcon {
+    display: none;
+  }
+
+  .header {
+    text-align: left;
+  }
 }
