@@ -464,7 +464,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             <thead>
               <tr>
                 <th>Campaign</th><th>Buying type</th>
-                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
+                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Views</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
               </tr> 
             </thead>
             <tbody>
@@ -474,6 +474,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
                   <td>{r.buyingType}</td>
                   <td className="right">{num(r.impressions)}</td>
                   <td className="right">{num(r.reach)}</td>
+                  <td className="right">{num(r.view)}</td>
                   <td className="right">{num(r.engagement)}</td>
                   <td className="right">{pct(r.ctr)}</td>
                   <td className="right">{pct(r.er)}</td>
@@ -673,7 +674,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
                   <td className="right">{vnd(r.spend)}</td>
                 </tr>
               ))}
-              {pagedRows.length === 0 && <tr><td colSpan={7}>Chưa có data.</td></tr>}
+              {pagedRows.length === 0 && <tr><td colSpan={8}>Chưa có data.</td></tr>}
             </tbody>
           </table>
           <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />

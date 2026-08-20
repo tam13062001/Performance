@@ -24,6 +24,18 @@ const COLOR_PALETTE: { name: string; primary: string; secondary: string; accent:
   { name: "Ngọc lam", primary: "#0d9488", secondary: "#2dd4bf", accent: "#fb7185" },
 ];
 
+// Bảng màu cố định cho modal này — không phụ thuộc theme sáng/tối của site,
+// để tránh trường hợp biến CSS theo theme làm chữ bị "mất" (trùng màu nền).
+const C = {
+  text: "#111827",       // chữ chính
+  textMuted: "#6b7280",  // chữ phụ
+  border: "#e5e7eb",     // viền
+  bg: "#ffffff",         // nền input
+  danger: "#dc2626",
+  accent: "#111827",     // màu nút chính (đen), đổi lại nếu muốn theo brand
+  accentText: "#ffffff",
+};
+
 export function ShareManager({ projectCode }: { projectCode: string }) {
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,20 +117,36 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
   };
 
   return (
-    <article className="card">
-      <div className="card-head">
+    <article className="card" style={{ background: C.bg, color: C.text }}>
+      <div className="card-head" style={{ borderColor: C.border }}>
         <div>
-          <small>Share cho client</small>
-          <h3><Share2 size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} />Tạo link chia sẻ</h3>
+          <small style={{ color: C.textMuted }}>Share cho client</small>
+          <h3 style={{ color: C.text }}>
+            <Share2 size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+            Tạo link chia sẻ
+          </h3>
         </div>
       </div>
 
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
-          <p style={{ fontSize: 13, color: "var(--fg-muted)", marginBottom: 8 }}>Chọn phần muốn share:</p>
+          <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 8 }}>Chọn phần muốn share:</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {SHAREABLE_PAGES.map((p) => (
-              <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", cursor: "pointer" }}>
+              <label
+                key={p.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  padding: "6px 10px",
+                  cursor: "pointer",
+                  color: C.text,
+                  fontSize: 14,
+                }}
+              >
                 <input type="checkbox" checked={selectedPages.includes(p.id)} onChange={() => togglePage(p.id)} />
                 {p.label}
               </label>
@@ -130,7 +158,13 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           placeholder="Tên gợi nhớ cho link (không bắt buộc)"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--fg)" }}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: `1px solid ${C.border}`,
+            background: C.bg,
+            color: C.text,
+          }}
         />
 
         <input
@@ -138,11 +172,27 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           placeholder="Mật khẩu cho project này (để trống nếu giữ nguyên password cũ)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--fg)" }}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: `1px solid ${C.border}`,
+            background: C.bg,
+            color: C.text,
+          }}
         />
 
         <div>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--fg-muted)", cursor: "pointer", marginBottom: useCustomTheme ? 12 : 0 }}>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 13,
+              color: C.textMuted,
+              cursor: "pointer",
+              marginBottom: useCustomTheme ? 12 : 0,
+            }}
+          >
             <input type="checkbox" checked={useCustomTheme} onChange={(e) => setUseCustomTheme(e.target.checked)} />
             Tùy chỉnh màu riêng cho link này
           </label>
@@ -150,7 +200,7 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           {useCustomTheme && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
-                <p style={{ fontSize: 12, color: "var(--fg-muted)", marginBottom: 8 }}>Chọn bảng màu có sẵn:</p>
+                <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Chọn bảng màu có sẵn:</p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {COLOR_PALETTE.map((p) => {
                     const isSelected = primaryColor === p.primary && secondaryColor === p.secondary && accentColor === p.accent;
@@ -170,8 +220,8 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                           gap: 6,
                           padding: "6px 10px",
                           borderRadius: 8,
-                          border: isSelected ? "2px solid var(--fg)" : "1px solid var(--border)",
-                          background: "transparent",
+                          border: isSelected ? `2px solid ${C.text}` : `1px solid ${C.border}`,
+                          background: C.bg,
                           cursor: "pointer",
                         }}
                       >
@@ -180,7 +230,7 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                           <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.secondary, marginRight: -4, border: "1px solid rgba(0,0,0,0.15)" }} />
                           <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.accent, border: "1px solid rgba(0,0,0,0.15)" }} />
                         </span>
-                        <span style={{ fontSize: 12, color: "var(--fg)" }}>{p.name}</span>
+                        <span style={{ fontSize: 12, color: C.text }}>{p.name}</span>
                       </button>
                     );
                   })}
@@ -188,25 +238,25 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
               </div>
 
               <div>
-                <p style={{ fontSize: 12, color: "var(--fg-muted)", marginBottom: 8 }}>Hoặc tự chọn từng màu:</p>
+                <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Hoặc tự chọn từng màu:</p>
                 <div style={{ display: "flex", gap: 16 }}>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: C.textMuted }}>
                     Primary
-                    <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                    <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", background: C.bg }} />
                   </label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: C.textMuted }}>
                     Secondary
-                    <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                    <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", background: C.bg }} />
                   </label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--fg-muted)" }}>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: C.textMuted }}>
                     Accent
-                    <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: "1px solid var(--border)", borderRadius: 6, cursor: "pointer", background: "transparent" }} />
+                    <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ width: 44, height: 32, padding: 0, border: `1px solid ${C.border}`, borderRadius: 6, cursor: "pointer", background: C.bg }} />
                   </label>
                 </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8 }}>
-                <span style={{ fontSize: 12, color: "var(--fg-muted)" }}>Xem trước:</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                <span style={{ fontSize: 12, color: C.textMuted }}>Xem trước:</span>
                 <span style={{ width: 20, height: 20, borderRadius: 6, background: primaryColor }} />
                 <span style={{ width: 20, height: 20, borderRadius: 6, background: secondaryColor }} />
                 <span style={{ width: 20, height: 20, borderRadius: 6, background: accentColor }} />
@@ -215,30 +265,44 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           )}
         </div>
 
-        {error && <p style={{ color: "#e5484d", fontSize: 13 }}>{error}</p>}
+        {error && <p style={{ color: C.danger, fontSize: 13 }}>{error}</p>}
 
         <button
           onClick={create}
           disabled={creating}
-          style={{ alignSelf: "flex-start", padding: "8px 16px", borderRadius: 6, border: "none", background: "var(--accent)", color: "#fff", cursor: creating ? "not-allowed" : "pointer" }}
+          style={{
+            alignSelf: "flex-start",
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: C.accent,
+            color: C.accentText,
+            cursor: creating ? "not-allowed" : "pointer",
+            opacity: creating ? 0.6 : 1,
+          }}
         >
           {creating ? "Đang tạo…" : "Tạo link share"}
         </button>
       </div>
 
       <div className="table-wrap">
-        <table>
+        <table style={{ color: C.text }}>
           <thead>
-            <tr><th>Link</th><th>Nội dung</th><th>Trạng thái</th><th></th></tr>
+            <tr style={{ color: C.textMuted }}>
+              <th>Link</th>
+              <th>Nội dung</th>
+              <th>Trạng thái</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
             {links.map((l) => (
-              <tr key={l.slug} style={{ opacity: l.revokedAt ? 0.5 : 1 }}>
-                <td className="mono">
+              <tr key={l.slug} style={{ opacity: l.revokedAt ? 0.55 : 1, color: C.text }}>
+                <td className="mono" style={{ color: C.text }}>
                   {l.label ? <b>{l.label}</b> : null}
-                  <div>/share/{l.slug}</div>
+                  <div style={{ color: C.textMuted }}>/share/{l.slug}</div>
                 </td>
-                <td>
+                <td style={{ color: C.text }}>
                   {l.allowedPages.map((id) => SHAREABLE_PAGES.find((p) => p.id === id)?.label ?? id).join(", ")}
                   {l.theme && (
                     <span style={{ display: "inline-flex", gap: 3, marginLeft: 8, verticalAlign: "middle" }}>
@@ -248,14 +312,16 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                     </span>
                   )}
                 </td>
-                <td>{l.revokedAt ? "Đã thu hồi" : "Đang hoạt động"}</td>
+                <td style={{ color: l.revokedAt ? C.textMuted : "#16a34a" }}>
+                  {l.revokedAt ? "Đã thu hồi" : "Đang hoạt động"}
+                </td>
                 <td style={{ display: "flex", gap: 8 }}>
                   {!l.revokedAt && (
                     <>
-                      <button onClick={() => copyLink(l.slug)} title="Copy link" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: 6, cursor: "pointer", color: "var(--fg)" }}>
+                      <button onClick={() => copyLink(l.slug)} title="Copy link" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.text }}>
                         {copiedSlug === l.slug ? <Check size={14} /> : <Copy size={14} />}
                       </button>
-                      <button onClick={() => revoke(l.slug)} title="Thu hồi" style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 6, padding: 6, cursor: "pointer", color: "#e5484d" }}>
+                      <button onClick={() => revoke(l.slug)} title="Thu hồi" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.danger }}>
                         <Trash2 size={14} />
                       </button>
                     </>
@@ -263,7 +329,11 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                 </td>
               </tr>
             ))}
-            {!loading && links.length === 0 && <tr><td colSpan={4}>Chưa có link share nào.</td></tr>}
+            {!loading && links.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ color: C.textMuted }}>Chưa có link share nào.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

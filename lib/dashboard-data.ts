@@ -225,15 +225,27 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
       trend: "up",
     },
     {
-      label: "Spending Optimization",
-      value: float(spendoptimize *100),
+      label: "Total Engagements",
+      value: num(eng),
+      sub: ``,
       trend: "up",
     },
-    {
-      label: "Spend Pacing",
-      value: float(spendPacing * 100),
+  {
+      label: "Total spend",
+      value: vnd(spend),
+      sub: ``,
       trend: "up",
     },
+    // {
+    //   label: "Spending Optimization",
+    //   value: float(spendoptimize *100),
+    //   trend: "up",
+    // },
+    // {
+    //   label: "Spend Pacing",
+    //   value: float(spendPacing * 100),
+    //   trend: "up",
+    // },
   ];
 }
 
@@ -533,10 +545,14 @@ export type ExecutionRow = {
   impressions: number; 
   reach: number | null; 
   engagements: number; 
+  views: number;              // + thêm
   clicks: number; 
+  linkClicks: number;         // + thêm
+  landingPageViews: number;   // + thêm
+  leads: number;              // + thêm
   spend: number; 
   ctr: number; 
-  er: number; // <-- THÊM ER
+  er: number;
 };
 
 function normFacebook(rows: any[]): ExecutionRow[] {
@@ -550,10 +566,14 @@ function normFacebook(rows: any[]): ExecutionRow[] {
       impressions: imp,
       reach: r.reach ?? null,
       engagements: eng,
+      views: r.views ?? 0,                              // + thêm
       clicks: r.clicks ?? 0,
+      linkClicks: r.link_clicks ?? 0,                    // + thêm
+      landingPageViews: r.landing_page_views ?? 0,       // + thêm
+      leads: r.leads ?? 0,                                // + thêm
       spend: r.spend ?? 0,
       ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
-      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+      er: r.er ?? erOf(imp, eng),
     };
   });
 }
@@ -569,10 +589,14 @@ function normSemYoutube(rows: any[]): ExecutionRow[] {
       impressions: imp,
       reach: null,
       engagements: eng,
+      views: r.views ?? 0,                              // + thêm
       clicks: r.clicks ?? 0,
+      linkClicks: r.link_clicks ?? 0,                    // + thêm
+      landingPageViews: r.landing_page_views ?? 0,       // + thêm
+      leads: r.leads ?? 0,                                // + thêm
       spend: r.cost ?? 0,
       ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
-      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+      er: r.er ?? erOf(imp, eng),
     };
   });
 }
@@ -588,10 +612,14 @@ function normTiktok(rows: any[]): ExecutionRow[] {
       impressions: imp,
       reach: r.reach ?? null,
       engagements: eng,
+      views: r.views ?? 0,                              // + thêm
       clicks: r.clicks ?? 0,
+      linkClicks: r.link_clicks ?? 0,                    // + thêm
+      landingPageViews: r.landing_page_views ?? 0,       // + thêm
+      leads: r.leads ?? 0,                                // + thêm
       spend: r.spend ?? 0,
       ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
-      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+      er: r.er ?? erOf(imp, eng),
     };
   });
 }
@@ -600,11 +628,24 @@ function aggregateBy(rows: ExecutionRow[], key: (r: ExecutionRow) => string): Ex
   const map = new Map<string, ExecutionRow>();
   for (const r of rows) {
     const k = key(r);
-    const agg = map.get(k) ?? { id: k, name: k, adGroup: null, impressions: 0, reach: null, engagements: 0, clicks: 0, spend: 0, ctr: 0, er: 0 };
+    const agg = map.get(k) ?? {
+      id: k, name: k, adGroup: null,
+      impressions: 0, reach: null, engagements: 0,
+      views: 0,                    // + thêm
+      clicks: 0,
+      linkClicks: 0,                // + thêm
+      landingPageViews: 0,          // + thêm
+      leads: 0,                     // + thêm
+      spend: 0, ctr: 0, er: 0,
+    };
     agg.impressions += r.impressions;
     agg.clicks += r.clicks;
     agg.spend += r.spend;
     agg.engagements += r.engagements;
+    agg.views += r.views;                     // + thêm
+    agg.linkClicks += r.linkClicks;           // + thêm
+    agg.landingPageViews += r.landingPageViews; // + thêm
+    agg.leads += r.leads;                     // + thêm
     if (r.reach !== null) agg.reach = (agg.reach ?? 0) + r.reach;
     map.set(k, agg);
   }
@@ -612,7 +653,7 @@ function aggregateBy(rows: ExecutionRow[], key: (r: ExecutionRow) => string): Ex
     .map((a) => ({ 
       ...a, 
       ctr: ctrOf(a.impressions, a.clicks),
-      er: erOf(a.impressions, a.engagements) // <-- TÍNH LẠI ER SAU KHI AGGREGATE
+      er: erOf(a.impressions, a.engagements)
     }))
     .sort((a, b) => b.impressions - a.impressions);
 }

@@ -22,6 +22,19 @@ type ShareMeta = {
   theme: { primary: string; secondary: string; accent: string } | null;
 };
 
+// Bảng màu cố định cho màn hình nhập mật khẩu — không phụ thuộc theme
+// để tránh chữ/input bị mờ khi site đang ở light mode.
+const C = {
+  text: "#111827",
+  textMuted: "#6b7280",
+  border: "#e5e7eb",
+  bg: "#ffffff",
+  placeholder: "#9ca3af",
+  danger: "#dc2626",
+  accent: "#111827",
+  accentText: "#ffffff",
+};
+
 function PasswordGate({ slug, onAuthed }: { slug: string; onAuthed: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +64,24 @@ function PasswordGate({ slug, onAuthed }: { slug: string; onAuthed: () => void }
   };
 
   return (
-    <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <form onSubmit={submit} className="card" style={{ maxWidth: 360, width: "100%", padding: 24 }}>
+    <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
+      <form
+        onSubmit={submit}
+        style={{
+          maxWidth: 360,
+          width: "100%",
+          padding: 24,
+          background: C.bg,
+          borderRadius: 12,
+          border: `1px solid ${C.border}`,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.06)",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <Lock size={18} />
-          <h3 style={{ margin: 0 }}>Báo cáo được bảo vệ</h3>
+          <Lock size={18} color={C.text} />
+          <h3 style={{ margin: 0, color: C.text }}>Báo cáo được bảo vệ</h3>
         </div>
-        <p style={{ color: "var(--fg-muted)", fontSize: 13, marginBottom: 16 }}>
+        <p style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>
           Nhập mật khẩu được cung cấp để xem báo cáo này.
         </p>
         <input
@@ -66,13 +90,31 @@ function PasswordGate({ slug, onAuthed }: { slug: string; onAuthed: () => void }
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Mật khẩu"
           autoFocus
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border)", marginBottom: 12, background: "transparent", color: "var(--fg)" }}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 6,
+            border: `1px solid ${C.border}`,
+            marginBottom: 12,
+            background: C.bg,
+            color: C.text,
+            boxSizing: "border-box",
+          }}
         />
-        {error && <p style={{ color: "#e5484d", fontSize: 13, marginBottom: 12 }}>{error}</p>}
+        {error && <p style={{ color: C.danger, fontSize: 13, marginBottom: 12 }}>{error}</p>}
         <button
           type="submit"
           disabled={submitting || !password}
-          style={{ width: "100%", padding: "10px 12px", borderRadius: 6, border: "none", background: "var(--accent)", color: "#fff", cursor: submitting ? "not-allowed" : "pointer" }}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 6,
+            border: "none",
+            background: C.accent,
+            color: C.accentText,
+            cursor: submitting ? "not-allowed" : "pointer",
+            opacity: submitting ? 0.6 : 1,
+          }}
         >
           {submitting ? "Đang kiểm tra…" : "Xem báo cáo"}
         </button>
@@ -91,6 +133,11 @@ export function ShareView({ slug }: { slug: string }) {
   const projectCode = meta?.projectCode ?? "";
   const availableMonths = useAvailableMonths(projectCode);
 
+  // Luôn ép light mode cho toàn bộ trang Share, không phụ thuộc theme client hay session trước đó
+  useEffect(() => {
+    document.documentElement.dataset.uiTheme = "light";
+  }, []);
+
   useEffect(() => {
     if (meta?.theme) {
       applyProjectTheme({
@@ -99,6 +146,7 @@ export function ShareView({ slug }: { slug: string }) {
         primary: meta.theme.primary,
         secondary: meta.theme.secondary,
         accent: meta.theme.accent,
+        mode: "light",
       });
     }
   }, [meta]);
@@ -156,61 +204,61 @@ export function ShareView({ slug }: { slug: string }) {
 
   return (
     <ClientThemeContext.Provider value={themeContextValue}>
-    <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
-      <header className="topbar">
-        <div>
-          <div className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <img 
-                src="/Rocket Group Logo.png" 
-                alt="Logo" 
-                style={{ height: 36, width: "auto", objectFit: "contain" }} 
-            />
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
+        <header className="topbar">
+          <div>
+            <div className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <img
+                src="/Rocket Group Logo.png"
+                alt="Logo"
+                style={{ height: 36, width: "auto", objectFit: "contain" }}
+              />
+            </div>
+            <h1>{meta.projectLabel}</h1>
+            {meta.label && <p>{meta.label}</p>}
           </div>
-          <h1>{meta.projectLabel}</h1>
-          {meta.label && <p>{meta.label}</p>}
-        </div>
-        <div className="header-controls">
-          <label className="period-select">
-            <span>Plan view</span>
-            <select value={planView} onChange={(e) => setPlanView(e.target.value as "MTD" | "YTD")}>
-              <option value="MTD">MTD</option>
-              <option value="YTD">YTD</option>
-            </select>
-          </label>
-          {planView === "MTD" && (
+          <div className="header-controls">
             <label className="period-select">
-              <span>Month</span>
-              <select value={month} onChange={(e) => setMonth(e.target.value)} disabled={availableMonths.length === 0}>
-                {availableMonths.length === 0 && <option value="">Không có tháng MTD</option>}
-                {availableMonths.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
+              <span>Plan view</span>
+              <select value={planView} onChange={(e) => setPlanView(e.target.value as "MTD" | "YTD")}>
+                <option value="MTD">MTD</option>
+                <option value="YTD">YTD</option>
               </select>
             </label>
-          )}
-          <div className="header-chip"><Calendar size={15} /> {periodLabel}</div>
-        </div>
-      </header>
+            {planView === "MTD" && (
+              <label className="period-select">
+                <span>Month</span>
+                <select value={month} onChange={(e) => setMonth(e.target.value)} disabled={availableMonths.length === 0}>
+                  {availableMonths.length === 0 && <option value="">Không có tháng MTD</option>}
+                  {availableMonths.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="header-chip"><Calendar size={15} /> {periodLabel}</div>
+          </div>
+        </header>
 
-      <div className="page-toolbar">
-        <div className="tabs">
-          {pages.map((p) => (
-            <button key={p.id} type="button" className={`tab ${activePage === p.id ? "active" : ""}`} onClick={() => setActivePage(p.id)}>
-              {p.label}
-            </button>
-          ))}
+        <div className="page-toolbar">
+          <div className="tabs">
+            {pages.map((p) => (
+              <button key={p.id} type="button" className={`tab ${activePage === p.id ? "active" : ""}`} onClick={() => setActivePage(p.id)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
 
-      <section className="page">
-        {activePage === "overview" && periodMonth && <OverviewPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
-        {activePage === "business" && periodMonth && <BusinessPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
-        {activePage === "audience" && periodMonth && <AudiencePage projectCode={projectCode} periodMonth={periodMonth} />}
-        {activePage === "google" && <ChannelDashboard projectCode={projectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
-        {activePage === "meta" && <ChannelDashboard projectCode={projectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
-        {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
-      </section>
-    </main>
+        <section className="page">
+          {activePage === "overview" && periodMonth && <OverviewPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
+          {activePage === "business" && periodMonth && <BusinessPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
+          {activePage === "audience" && periodMonth && <AudiencePage projectCode={projectCode} periodMonth={periodMonth} />}
+          {activePage === "google" && <ChannelDashboard projectCode={projectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
+          {activePage === "meta" && <ChannelDashboard projectCode={projectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
+          {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
+        </section>
+      </main>
     </ClientThemeContext.Provider>
   );
 }
