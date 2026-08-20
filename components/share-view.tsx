@@ -159,7 +159,14 @@ export function ShareView({ slug }: { slug: string }) {
     <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
       <header className="topbar">
         <div>
-          <div className="eyebrow">Báo cáo được chia sẻ</div>
+          <div className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <img 
+                src="/Rocket Group Logo.png" 
+                alt="Logo" 
+                style={{ height: 18, width: "auto", objectFit: "contain" }} 
+            />
+            <span>Báo cáo được chia sẻ</span>
+          </div>
           <h1>{meta.projectLabel}</h1>
           {meta.label && <p>{meta.label}</p>}
         </div>

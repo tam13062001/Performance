@@ -1,4 +1,3 @@
-// SAU
 import { ShareView } from "@/components/share-view";
 
 export default async function SharePage({ params }: { params: Promise<{ slug: string }> }) {

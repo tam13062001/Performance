@@ -20,6 +20,7 @@ export const pct = (n: number) => (Number.isFinite(n) ? `${n.toFixed(2)}%` : "�
 
 export const freqFmt = (n: number) => (Number.isFinite(n) ? n.toFixed(2) + "x" : "—");
 export const ctrOf = (imp: number, clk: number) => (imp > 0 ? (clk / imp) * 100 : 0);
+export const erOf = (imp: number, eng: number) => (imp > 0 ? (eng / imp) * 100 : 0); // <-- Thêm helper erOf
 export const cpcOf = (spend: number, clk: number) => (clk > 0 ? spend / clk : 0);
 export const freqOf = (imp: number, reach: number) => (reach > 0 ? imp / reach : 0);
 
@@ -153,7 +154,7 @@ export async function loadAvailableMonths(projectCode: string): Promise<string[]
   return [...months].sort(sortByMonth);
 }
 
-// ---------- KPI tổng quan (Đã chuyển sang dùng DataStatusRow) ----------
+// ---------- KPI tổng quan ----------
 export type KpiCard = { label: string; value: string; sub: string; trend?: "up" | "down"; delta?: string };
 
 function sum<T>(rows: T[], pick: (r: T) => number) {
@@ -185,7 +186,6 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
   const er = cr(eng, imp);
   const cpc = cpcOf(spend, clicks);
   const freq = freqOf(imp, reach);
-  const deliveryPct = plannedQuantity > 0 ? (actualDelivery / plannedQuantity) * 100 : 0;
 
   const spendPacing = soldvalue/totalvalue;
 
@@ -219,7 +219,6 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
       value: num(clicks),
       sub: `CPC ${num(cpc)} ₫`,
       trend: "up",
-      
     },
     {
       label: "Total Views",
@@ -244,7 +243,6 @@ export function overviewKpis(data: DataStatusRow[], delivery: DeliveryStatusRow[
   ];
 }
 
-// ---------- Business breakdown ----------
 // ---------- Business breakdown ----------
 export type BusinessDimension = "phase" | "region" | "buying_type" | "channel";
 export type BusinessRow = {
@@ -301,12 +299,23 @@ export function businessBreakdown(dim: BusinessDimension, report: ReportRow[]): 
     .map((r) => ({
       ...r,
       ctr: ctrOf(r.impressions, r.clicks),
-      er: ctrOf(r.impressions, r.engagements),
+      er: erOf(r.impressions, r.engagements),
     }))
     .sort((a, b) => b.impressions - a.impressions);
 }
+
 // ---------- Monthly trend ----------
-export type MonthlyPoint = { month: string; impressions: number; reach: number; clicks: number; spend: number; ctr: number; frequency: number };
+export type MonthlyPoint = {
+  month: string;
+  impressions: number;
+  reach: number;
+  engagements: number;
+  clicks: number;
+  spend: number;
+  ctr: number;
+  er: number; // <-- THÊM ER
+  frequency: number;
+};
 
 export async function monthlyTrend(projectCode: string): Promise<MonthlyPoint[]> {
   const all = await fetchTable<ReportRow>("ad_raw_report", projectCode);
@@ -321,14 +330,25 @@ export async function monthlyTrend(projectCode: string): Promise<MonthlyPoint[]>
     .map(([month, group]) => {
       const impressions = sum(group, (r) => r.impressions);
       const reach = sum(group, (r) => r.reach);
+      const engagements = sum(group, (r) => r.engagements);
       const clicks = sum(group, (r) => r.clicks);
       const spend = sum(group, (r) => r.spend);
-      return { month, impressions, reach, clicks, spend, ctr: ctrOf(impressions, clicks), frequency: freqOf(impressions, reach) };
+      return {
+        month,
+        impressions,
+        reach,
+        engagements,
+        clicks,
+        spend,
+        ctr: ctrOf(impressions, clicks),
+        er: erOf(impressions, engagements), // <-- THÊM TÍNH ER
+        frequency: freqOf(impressions, reach),
+      };
     })
     .sort((a, b) => sortByMonth(a.month, b.month));
 }
 
-// ---------- Campaign delivery table (Đã đổi thành DataStatusRow) ----------
+// ---------- Campaign delivery table ----------
 export type Verdict = "Đạt" | "Cảnh báo" | "Chưa đạt" | "Chưa map";
 
 export function verdictFromStatus(deliveryStatus: string | null, costStatus: string | null): { verdict: Verdict; raw: string } {
@@ -448,7 +468,7 @@ export function campaignDeliveryRows(data: DataStatusRow[]): CampaignDeliveryRow
         clicks,
         linkclick,
         landing,
-        er: ctrOf(impressions, engagement),
+        er: erOf(impressions, engagement),
         ctr: ctrOf(impressions, clicks),
         verdict,
         statusRaw: raw,
@@ -457,7 +477,7 @@ export function campaignDeliveryRows(data: DataStatusRow[]): CampaignDeliveryRow
     .sort((a, b) => b.impressions - a.impressions);
 }
 
-// ---------- Signals (Đã chuyển qua dùng DataStatusRow) ----------
+// ---------- Signals ----------
 export type Signal = { tone: "good" | "warn" | "bad"; title: string; detail: string };
 
 export function overviewSignals(data: DataStatusRow[]): Signal[] {
@@ -512,57 +532,95 @@ export function planSummary(plan: UnitCostPlanRow[]) {
 }
 
 // ---------- Execution rows (Google/Meta dashboard) ----------
-export type ExecutionRow = { id: string; name: string; adGroup: string | null; impressions: number; reach: number | null; clicks: number; spend: number; ctr: number };
+export type ExecutionRow = { 
+  id: string; 
+  name: string; 
+  adGroup: string | null; 
+  impressions: number; 
+  reach: number | null; 
+  engagements: number; 
+  clicks: number; 
+  spend: number; 
+  ctr: number; 
+  er: number; // <-- THÊM ER
+};
 
 function normFacebook(rows: any[]): ExecutionRow[] {
-  return rows.map((r, i) => ({
-    id: r.id ?? `fb-${i}`,
-    name: r.campaign_name,
-    adGroup: r.adset_name,
-    impressions: r.impressions ?? 0,
-    reach: r.reach ?? null,
-    clicks: r.clicks ?? 0,
-    spend: r.spend ?? 0,
-    ctr: r.ctr ?? ctrOf(r.impressions ?? 0, r.clicks ?? 0),
-  }));
+  return rows.map((r, i) => {
+    const imp = r.impressions ?? 0;
+    const eng = r.engagements ?? r.engagement ?? r.inline_post_engagement ?? 0;
+    return {
+      id: r.id ?? `fb-${i}`,
+      name: r.campaign_name,
+      adGroup: r.adset_name,
+      impressions: imp,
+      reach: r.reach ?? null,
+      engagements: eng,
+      clicks: r.clicks ?? 0,
+      spend: r.spend ?? 0,
+      ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
+      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+    };
+  });
 }
+
 function normSemYoutube(rows: any[]): ExecutionRow[] {
-  return rows.map((r, i) => ({
-    id: r.id ?? `g-${i}`,
-    name: r.campaign_name,
-    adGroup: null,
-    impressions: r.impressions ?? 0,
-    reach: null,
-    clicks: r.clicks ?? 0,
-    spend: r.cost ?? 0,
-    ctr: r.ctr ?? ctrOf(r.impressions ?? 0, r.clicks ?? 0),
-  }));
+  return rows.map((r, i) => {
+    const imp = r.impressions ?? 0;
+    const eng = r.engagements ?? r.engagement ?? 0;
+    return {
+      id: r.id ?? `g-${i}`,
+      name: r.campaign_name,
+      adGroup: null,
+      impressions: imp,
+      reach: null,
+      engagements: eng,
+      clicks: r.clicks ?? 0,
+      spend: r.cost ?? 0,
+      ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
+      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+    };
+  });
 }
+
 function normTiktok(rows: any[]): ExecutionRow[] {
-  return rows.map((r, i) => ({
-    id: r.id ?? `tt-${i}`,
-    name: r.campaign_name,
-    adGroup: r.ad_group_name,
-    impressions: r.impressions ?? 0,
-    reach: r.reach ?? null,
-    clicks: r.clicks ?? 0,
-    spend: r.spend ?? 0,
-    ctr: r.ctr ?? ctrOf(r.impressions ?? 0, r.clicks ?? 0),
-  }));
+  return rows.map((r, i) => {
+    const imp = r.impressions ?? 0;
+    const eng = r.engagements ?? r.engagement ?? 0;
+    return {
+      id: r.id ?? `tt-${i}`,
+      name: r.campaign_name,
+      adGroup: r.ad_group_name,
+      impressions: imp,
+      reach: r.reach ?? null,
+      engagements: eng,
+      clicks: r.clicks ?? 0,
+      spend: r.spend ?? 0,
+      ctr: r.ctr ?? ctrOf(imp, r.clicks ?? 0),
+      er: r.er ?? erOf(imp, eng), // <-- MAP ER
+    };
+  });
 }
 
 function aggregateBy(rows: ExecutionRow[], key: (r: ExecutionRow) => string): ExecutionRow[] {
   const map = new Map<string, ExecutionRow>();
   for (const r of rows) {
     const k = key(r);
-    const agg = map.get(k) ?? { id: k, name: k, adGroup: null, impressions: 0, reach: null, clicks: 0, spend: 0, ctr: 0 };
+    const agg = map.get(k) ?? { id: k, name: k, adGroup: null, impressions: 0, reach: null, engagements: 0, clicks: 0, spend: 0, ctr: 0, er: 0 };
     agg.impressions += r.impressions;
     agg.clicks += r.clicks;
     agg.spend += r.spend;
+    agg.engagements += r.engagements;
     if (r.reach !== null) agg.reach = (agg.reach ?? 0) + r.reach;
     map.set(k, agg);
   }
-  return [...map.values()].map((a) => ({ ...a, ctr: ctrOf(a.impressions, a.clicks) })).sort((a, b) => b.impressions - a.impressions);
+  return [...map.values()]
+    .map((a) => ({ 
+      ...a, 
+      ctr: ctrOf(a.impressions, a.clicks),
+      er: erOf(a.impressions, a.engagements) // <-- TÍNH LẠI ER SAU KHI AGGREGATE
+    }))
+    .sort((a, b) => b.impressions - a.impressions);
 }
 
 export async function loadExecutionRows(
@@ -647,7 +705,7 @@ export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdo
     .sort((a, b) => b.impressions - a.impressions);
 }
 
-// ---------- Demographic breakdown theo Campaign + Age/Gender/Region (chi tiết, giữ breakdown) ----------
+// ---------- Demographic breakdown theo Campaign + Age/Gender/Region ----------
 export type CampaignBreakdownRow = {
   campaignName: string;
   breakdownValue: string;
@@ -695,22 +753,15 @@ export type AlertRow = {
   channel: string;
   buyingType: string;
   asset: string;
-  statusLabel: string; // "behind" | "over cost" | "cost optimized nhưng time < 20%"
-  value: number; // % hiển thị (pacing_gap cho rule 1, cost_optimized_pct cho rule 2)
+  statusLabel: string;
+  value: number;
 };
 
 export type AlertGroups = {
-  laggingDelivery: AlertRow[]; // Rule 1: Chậm spending/delivery
-  overCost: AlertRow[]; // Rule 2: Chi phí vượt ngưỡng
+  laggingDelivery: AlertRow[];
+  overCost: AlertRow[];
 };
 
-/**
- * Rule 1 — Chậm spending/delivery:
- *   delivery_status chứa "behind"/"chậm"/"trễ"/"late" -> lấy pacing_gap làm giá trị hiển thị.
- * Rule 2 — Chi phí vượt ngưỡng:
- *   cost_status = "over" (vượt ngưỡng), HOẶC
- *   cost_status = "cost optimized" NHƯNG time_passed_pct < 20% (tối ưu quá sớm/bất thường).
- */
 export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
   const laggingDelivery: AlertRow[] = [];
   const overCost: AlertRow[] = [];
@@ -752,9 +803,8 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
     }
   }
 
-  // Ưu tiên hiển thị dòng lệch nhiều nhất lên đầu
-  laggingDelivery.sort((a, b) => a.value - b.value); // càng âm (trễ nhiều) càng lên đầu
-  overCost.sort((a, b) => b.value - a.value); // càng cao (vượt nhiều) càng lên đầu
+  laggingDelivery.sort((a, b) => a.value - b.value);
+  overCost.sort((a, b) => b.value - a.value);
 
   return { laggingDelivery, overCost };
 }
