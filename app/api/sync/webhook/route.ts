@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     tab_name?: string;
     headers?: unknown[];
     rows?: unknown[][] | WebhookRowNew[];
-    change_type?: 'INSERT' | 'UPSERT';
+    change_type?: 'INSERT' | 'UPSERT' | 'FULL_REPLACE';
   };
 
   if (!sheet_id || !tab_name || !rows || rows.length === 0) {
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   }
   if (config.parseRowByHeader && (!headers || headers.length === 0)) {
     return NextResponse.json(
-      { error: `Config table="${config.table}" đọc theo header nhưng payload không có "headers" — kiểm tra lại Apps Script đã update chưa` },
+      { error: `Config table="${config.table}" đọc theo header nhưng payload không có "headers"` },
       { status: 400 }
     );
   }
@@ -82,55 +82,87 @@ export async function POST(request: NextRequest) {
     if (projectRes.rows.length === 0) throw new Error(`Không tìm thấy project "${projectCode}"`);
     const projectId = projectRes.rows[0].id;
 
-    let successRows = 0;
-    let failedRows = 0;
+    // Parse toàn bộ trước, để biết được scope thật sự cần xóa (nếu có)
+    const parsedRows: Record<string, any>[] = [];
     let skippedRows = 0;
-
     for (const row of rawRows) {
       const values = config.parseRowByHeader
         ? config.parseRowByHeader(buildGetter(headers as unknown[], row))
         : config.parseRow!(row);
-
-      if (!values) {
-        skippedRows++;
-        continue;
-      }
-
+      if (!values) { skippedRows++; continue; }
       values.project_id = projectId;
+      parsedRows.push(values);
+    }
 
+    const useFullReplace =
+      change_type === 'FULL_REPLACE' &&
+      Array.isArray(config.deleteScopeColumns) &&
+      config.deleteScopeColumns.length > 0;
+
+    await client.query('BEGIN');
+
+    if (useFullReplace && parsedRows.length > 0) {
+      // Chỉ xóa đúng phạm vi (VD period_month = 'YTD') — không đụng vào MTD hay tab khác dùng chung bảng
+      const scopeCols = config.deleteScopeColumns!;
+      const seenScopes = new Set<string>();
+      for (const values of parsedRows) {
+        const scopeKey = scopeCols.map((c) => String(values[c])).join('|');
+        if (seenScopes.has(scopeKey)) continue;
+        seenScopes.add(scopeKey);
+
+        const whereCols = ['project_id', ...scopeCols];
+        const whereVals = [projectId, ...scopeCols.map((c) => values[c])];
+        const whereClause = whereCols.map((c, i) => `${c} = $${i + 1}`).join(' AND ');
+        await client.query(`DELETE FROM ${config.table} WHERE ${whereClause}`, whereVals);
+      }
+    }
+    // Nếu tab bị xóa sạch dữ liệu (parsedRows rỗng) thì KHÔNG xóa gì trong DB —
+    // an toàn hơn là xóa nhầm toàn bộ khi header/parse bị lỗi tạm thời.
+
+    let successRows = 0;
+    let failedRows = 0;
+
+    for (const values of parsedRows) {
       const cols = Object.keys(values);
       const placeholders = cols.map((_, i) => `$${i + 1}`);
-      const conflictCols = extractConflictColumnNames(config.conflictColumns);
-      const updateCols = cols.filter((c) => !conflictCols.includes(c));
-      const updateSetClause = updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
 
-      const sql = updateCols.length > 0
-        ? `INSERT INTO ${config.table} (${cols.join(', ')})
-           VALUES (${placeholders.join(', ')})
-           ON CONFLICT (${config.conflictColumns})
-           DO UPDATE SET ${updateSetClause}`
-        : `INSERT INTO ${config.table} (${cols.join(', ')})
-           VALUES (${placeholders.join(', ')})
-           ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
+      let sql: string;
+      if (useFullReplace) {
+        sql = `INSERT INTO ${config.table} (${cols.join(', ')}) VALUES (${placeholders.join(', ')})`;
+      } else {
+        const conflictCols = extractConflictColumnNames(config.conflictColumns);
+        const updateCols = cols.filter((c) => !conflictCols.includes(c));
+        const updateSetClause = updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
+        sql = updateCols.length > 0
+          ? `INSERT INTO ${config.table} (${cols.join(', ')})
+             VALUES (${placeholders.join(', ')})
+             ON CONFLICT (${config.conflictColumns})
+             DO UPDATE SET ${updateSetClause}`
+          : `INSERT INTO ${config.table} (${cols.join(', ')})
+             VALUES (${placeholders.join(', ')})
+             ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
+      }
 
       try {
         await client.query(sql, cols.map((c) => values[c]));
         successRows++;
       } catch (e) {
-        console.error(`Webhook upsert lỗi (${config.table}):`, (e as Error).message);
+        console.error(`Webhook insert lỗi (${config.table}):`, (e as Error).message);
         failedRows++;
       }
     }
 
+    await client.query('COMMIT');
+
     return NextResponse.json({
-      projectCode,
-      table: config.table,
-      changeType: change_type ?? 'INSERT',
-      successRows,
-      failedRows,
-      skippedRows,
-      totalRows: rawRows.length,
+      projectCode, table: config.table,
+      changeType: change_type ?? 'UPSERT',
+      fullReplace: useFullReplace,
+      successRows, failedRows, skippedRows, totalRows: rawRows.length,
     });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   } finally {
     client.release();
   }
