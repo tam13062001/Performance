@@ -371,7 +371,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
     .filter(([, imp]) => imp > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({ label, value }));
-
+  const isAllClear = alertGroups.laggingDelivery.length === 0 && alertGroups.overCost.length === 0;
   return (
     <>
       <div className="hero">
@@ -432,28 +432,37 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="card-head">
             <div><small>PERFORMANCE SIGNALS</small><h3>Cảnh báo chính</h3></div>
           </div>
-          <div className="alerts">
-            <p className="alerts-intro">Alert các vấn đề sau</p>
+<div className="alerts">
+  <p className="alerts-intro">Alert các vấn đề sau</p>
 
-            <div className="alert-group">
-              <strong>1. Chậm spending/ delivery</strong>
-              {alertGroups.laggingDelivery.length === 0 ? (
-                <p className="alert-empty">Hoạt động ổn định</p>
-              ) : (
-                alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
-              )}
-            </div>
+  {isAllClear ? (
+    <div className="alert-empty-all" style={{ marginTop: '10px' }}>
+      <strong>Hoạt động ổn định</strong>
+      <p>✓ Không có tín hiệu bất thường</p>
+      <p>Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
+    </div>
+  ) : (
+    <>
+      <div className="alert-group">
+        <strong>1. Chậm spending/ delivery</strong>
+        {alertGroups.laggingDelivery.length === 0 ? (
+          <p className="alert-empty">Hoạt động ổn định</p>
+        ) : (
+          alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
+        )}
+      </div>
 
-            <div className="alert-group">
-              <strong>2. Chi phí vượt ngưỡng</strong>
-              {alertGroups.overCost.length === 0 ? (
-                <p className="alert-empty">✓ Không có tín hiệu bất thường <br /> Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
-
-              ) : (
-                alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
-              )}
-            </div>
-          </div>
+      <div className="alert-group">
+        <strong>2. Chi phí vượt ngưỡng</strong>
+        {alertGroups.overCost.length === 0 ? (
+          <p className="alert-empty">✓ Không có tín hiệu bất thường</p>
+        ) : (
+          alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
+        )}
+      </div>
+    </>
+  )}
+</div>
         </article>
       </div>
 
