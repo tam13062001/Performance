@@ -3002,3 +3002,352 @@ tbody tr:hover {
     text-align: left;
   }
 }
+
+/* ============================================================
+   RESPONSIVE — FULL
+   ============================================================ */
+
+/* ---------- Base: cho phép các thanh flex quan trọng wrap ---------- */
+.topbar,
+.hero,
+.hero-strip,
+.channel-banner,
+.top-actions,
+.audience-toolbar,
+.page-toolbar,
+.header-controls,
+.workspace-active,
+.project-toolbar,
+.preview-toolbar,
+.brand-actions,
+.report-actions,
+.source-actions {
+  flex-wrap: wrap;
+}
+
+/* Hamburger button — ẩn mặc định, chỉ hiện dưới breakpoint mobile */
+.mobile-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mobile-nav-toggle:hover {
+  border-color: var(--brand);
+}
+
+/* Backdrop cho sidebar drawer trên mobile */
+.sidebar-backdrop {
+  display: none;
+}
+
+/* ============================================================
+   BREAKPOINT: <= 1200px — giảm mật độ, giữ 2 cột chính
+   ============================================================ */
+@media (max-width: 1200px) {
+  main {
+    padding: 24px 22px 50px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .rp-kpis {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ============================================================
+   BREAKPOINT: <= 1080px — gộp các layout 2 cột thành 1 cột
+   ============================================================ */
+@media (max-width: 1080px) {
+  .grid-2,
+  .grid-2.two-thirds,
+  .setup-grid,
+  .branding-layout,
+  .report-builder-layout,
+  .rp-split,
+  .rp-chart-row {
+    grid-template-columns: 1fr;
+  }
+  .branding-preview,
+  .report-settings {
+    position: static;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .mini-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+
+/* ============================================================
+   BREAKPOINT: <= 900px — form/brand grid co lại
+   ============================================================ */
+@media (max-width: 900px) {
+  .brand-grid,
+  .report-form .brand-grid,
+  .preset-options {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .project-form,
+  .report-form,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .project-form label.full,
+  .project-form .full,
+  .report-form .full {
+    grid-column: 1 / -1;
+  }
+  .preview-cards {
+    grid-template-columns: 1fr;
+  }
+  .section-checks {
+    grid-template-columns: 1fr;
+  }
+  .import-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .project-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+
+/* ============================================================
+   BREAKPOINT: <= 860px — SIDEBAR chuyển thành drawer trượt
+   ============================================================ */
+@media (max-width: 860px) {
+  body {
+    display: block; /* bỏ flex ngang gốc, sidebar giờ nằm fixed overlay */
+  }
+
+  main {
+    padding: 18px 16px 44px;
+    width: 100%;
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    display: flex; /* không còn display:none */
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 80;
+    box-shadow: none;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 24px 0 48px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar-backdrop.open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(6, 9, 20, 0.55);
+    backdrop-filter: blur(2px);
+    z-index: 75;
+  }
+
+  .topbar {
+    align-items: center;
+  }
+  .topbar > div:first-child {
+    order: 2;
+    flex: 1 1 200px;
+  }
+  .mobile-nav-toggle {
+    order: 1;
+  }
+  .top-actions,
+  .header-controls {
+    order: 3;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-2 > .card,
+  .grid-2.two-thirds > .card {
+    min-width: 0;
+  }
+  .chart-wrap.large {
+    height: 320px;
+  }
+}
+
+/* ============================================================
+   BREAKPOINT: <= 720px — bảng, tabs, chart co nhỏ hơn nữa
+   ============================================================ */
+@media (max-width: 720px) {
+  .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .brand-grid,
+  .report-form .brand-grid,
+  .preset-options,
+  .rp-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .import-grid,
+  .project-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .platform-filter {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .table-wrap table {
+    font-size: 12.5px;
+  }
+  thead th,
+  tbody td {
+    padding: 9px 10px;
+  }
+
+  .chart-wrap {
+    height: 240px;
+  }
+  .chart-wrap.large {
+    height: 280px;
+  }
+
+  .hero-strip h2,
+  .hero h2 {
+    font-size: 17px;
+  }
+  .hero-score strong,
+  .hero-badge b {
+    font-size: 34px;
+  }
+
+  .modal-card {
+    padding: 20px;
+    border-radius: 14px;
+  }
+
+  .preview-header,
+  .rp-header {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   BREAKPOINT: <= 560px — mobile nhỏ, mọi grid về 1 cột
+   ============================================================ */
+@media (max-width: 560px) {
+  main {
+    padding: 14px 12px 40px;
+  }
+
+  .form-grid,
+  .brand-grid,
+  .report-form .brand-grid,
+  .preset-options,
+  .rp-kpis,
+  .mini-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-strip,
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 18px;
+  }
+  .hero-score,
+  .hero-badge {
+    width: 100%;
+    padding: 16px;
+  }
+
+  .channel-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px;
+  }
+  .channel-banner > svg {
+    display: none;
+  }
+
+  .theme-toggle span,
+  .header-chip span {
+    display: none;
+  }
+
+  .period-select {
+    flex: 1 1 100%;
+  }
+  .period-select select {
+    width: 100%;
+  }
+
+  .project-card-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .brand-grid.two,
+  .report-form .brand-grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 16px;
+  }
+  .card-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .modal-actions,
+  .report-actions {
+    flex-direction: column;
+  }
+  .modal-actions button,
+  .report-actions button {
+    width: 100%;
+  }
+}
+
+/* ============================================================
+   Report document (A4) — thu nhỏ nội dung in-preview trên mobile
+   ============================================================ */
+@media (max-width: 720px) {
+  .rp-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .rp-split {
+    grid-template-columns: 1fr;
+  }
+  .rp-chart-row {
+    grid-template-columns: 1fr;
+  }
+}
