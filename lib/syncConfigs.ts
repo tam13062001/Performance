@@ -665,6 +665,13 @@ function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig
   };
 }
 
+/* =========================================================
+ * findConfigForSheetTab
+ * ✅ FIX — trước đây so `c.tabName === tabName`, nhưng
+ * buildDeliveryStatusConfig gán tabName là 1 MẢNG (candidateTabNames),
+ * nên so sánh === với string luôn false -> DELIVERY_STATUS không bao
+ * giờ khớp được config qua webhook. Giờ check cả trường hợp mảng.
+ * ========================================================= */
 export async function findConfigForSheetTab(
   sheetId: string,
   tabName: string
@@ -673,7 +680,9 @@ export async function findConfigForSheetTab(
 
   for (const { project_code } of projectsRes.rows) {
     const configs = await getAllRawConfigsForProject(project_code);
-    const found = configs.find((c) => c.tabName === tabName);
+    const found = configs.find((c) =>
+      Array.isArray(c.tabName) ? c.tabName.includes(tabName) : c.tabName === tabName
+    );
     if (!found) continue;
 
     const mainSheetRes = await pool.query(

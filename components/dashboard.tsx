@@ -52,8 +52,7 @@ type DbProject = { code: string; label: string; sheetId?: string };
 function AlertLine({ row }: { row: AlertRow }) {
   return (
     <p className="alert-line">
-      {row.region} - {row.channel} - {row.buyingType} - {row.asset} - {row.statusLabel} -{" "}
-      {row.value.toFixed(2)}%
+      {row.region} - {row.channel} - {row.buyingType} - {row.asset} - {row.statusLabel}
     </p>
   );
 }
@@ -439,7 +438,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             <div className="alert-group">
               <strong>1. Chậm spending/ delivery</strong>
               {alertGroups.laggingDelivery.length === 0 ? (
-                <p className="alert-empty">Không có campaign nào bị chậm delivery.</p>
+                <p className="alert-empty">Hoạt động ổn định</p>
               ) : (
                 alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
               )}
@@ -448,7 +447,8 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             <div className="alert-group">
               <strong>2. Chi phí vượt ngưỡng</strong>
               {alertGroups.overCost.length === 0 ? (
-                <p className="alert-empty">Không có campaign nào vượt ngưỡng chi phí.</p>
+                <p className="alert-empty">✓ Không có tín hiệu bất thường <br /> Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
+
               ) : (
                 alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
               )}

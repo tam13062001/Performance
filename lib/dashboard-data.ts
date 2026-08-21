@@ -833,7 +833,7 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
         channel: r.channel,
         buyingType: r.buying_type,
         asset,
-        statusLabel: isOverCost ? "over cost" : `cost optimized nhưng cost_optimized_pct ${costOptimizedPct.toFixed(2)} < 20`,
+        statusLabel: isOverCost ? "over cost" : `cost optimized nhưng cost_optimized_pct = ${costOptimizedPct.toFixed(2)} < 20`,
         value: costOptimizedPct,
       });
     }
