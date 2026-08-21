@@ -430,10 +430,10 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
 
         <article className="card">
           <div className="card-head">
-            <div><small>PERFORMANCE SIGNALS</small><h3>Cảnh báo chính</h3></div>
+            <div><small>PERFORMANCE SIGNALS</small></div>
           </div>
 <div className="alerts">
-  <p className="alerts-intro">Alert các vấn đề sau</p>
+  
 
   {isAllClear ? (
     <div className="alert-empty-all" style={{ marginTop: '10px' }}>
