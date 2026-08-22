@@ -4,6 +4,12 @@ import { findConfigForSheetTab } from '@/lib/syncConfigs';
 
 type WebhookRowNew = { row_number: number; values: unknown[] };
 
+// ===== FIX #1: ngưỡng an toàn — nếu tỷ lệ dòng bị skip trong 1 lần FULL_REPLACE
+// vượt quá mức này, TỪ CHỐI thực hiện DELETE+INSERT để tránh xóa mất data tốt
+// chỉ vì payload lần này bị lỗi/thiếu tạm thời (formula đang tính lại, header
+// alias không khớp một vài dòng, v.v.). Chỉnh số này theo mức bạn chấp nhận được.
+const FULL_REPLACE_SKIP_RATIO_THRESHOLD = 0.05; // 5%
+
 function normalizeHeader(v: unknown): string {
   return String(v ?? '').trim().toLowerCase();
 }
@@ -57,7 +63,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Thiếu sheet_id, tab_name hoặc rows' }, { status: 400 });
   }
 
-  const rawRows: unknown[][] = rows.map((r) => (Array.isArray(r) ? r : (r as WebhookRowNew).values));
+  // ===== FIX #2 (chuẩn bị): giữ lại row_number gốc thay vì chỉ lấy values,
+  // để khi 1 dòng bị skip ta biết chính xác dòng đó nằm ở đâu trong sheet.
+  const normalizedRows: { row_number: number | null; values: unknown[] }[] = rows.map((r) =>
+    Array.isArray(r)
+      ? { row_number: null, values: r }
+      : { row_number: (r as WebhookRowNew).row_number ?? null, values: (r as WebhookRowNew).values }
+  );
 
   const match = await findConfigForSheetTab(sheet_id, tab_name);
   if (!match) {
@@ -85,11 +97,18 @@ export async function POST(request: NextRequest) {
     // Parse toàn bộ trước, để biết được scope thật sự cần xóa (nếu có)
     const parsedRows: Record<string, any>[] = [];
     let skippedRows = 0;
-    for (const row of rawRows) {
+    // ===== FIX #2: lưu lại row_number của các dòng bị skip để log ra, thay vì chỉ đếm số lượng
+    const skippedRowNumbers: number[] = [];
+
+    for (const row of normalizedRows) {
       const values = config.parseRowByHeader
-        ? config.parseRowByHeader(buildGetter(headers as unknown[], row))
-        : config.parseRow!(row);
-      if (!values) { skippedRows++; continue; }
+        ? config.parseRowByHeader(buildGetter(headers as unknown[], row.values))
+        : config.parseRow!(row.values);
+      if (!values) {
+        skippedRows++;
+        if (row.row_number !== null) skippedRowNumbers.push(row.row_number);
+        continue;
+      }
       values.project_id = projectId;
       parsedRows.push(values);
     }
@@ -98,6 +117,28 @@ export async function POST(request: NextRequest) {
       change_type === 'FULL_REPLACE' &&
       Array.isArray(config.deleteScopeColumns) &&
       config.deleteScopeColumns.length > 0;
+
+    // ===== FIX #1: chặn trước khi động vào DB nếu skip ratio quá cao.
+    // Chỉ áp dụng cho nhánh useFullReplace, vì đây là nhánh có DELETE —
+    // nhánh upsert thường (ON CONFLICT DO UPDATE) không xóa gì nên an toàn hơn,
+    // dù skip nhiều thì chỉ là "chưa cập nhật thêm", không mất data cũ.
+    if (useFullReplace) {
+      const totalConsidered = normalizedRows.length;
+      const skipRatio = totalConsidered > 0 ? skippedRows / totalConsidered : 0;
+
+      if (skipRatio > FULL_REPLACE_SKIP_RATIO_THRESHOLD) {
+        return NextResponse.json(
+          {
+            error: `Từ chối FULL_REPLACE cho table="${config.table}" tab="${tab_name}": tỷ lệ dòng bị skip quá cao (${(skipRatio * 100).toFixed(1)}%, ngưỡng cho phép ${(FULL_REPLACE_SKIP_RATIO_THRESHOLD * 100).toFixed(0)}%). Không xóa data cũ để tránh mất dữ liệu — vui lòng kiểm tra các dòng bị skip rồi thử lại.`,
+            skippedRows,
+            totalRows: totalConsidered,
+            skipRatio: Number(skipRatio.toFixed(4)),
+            skippedRowNumbers: skippedRowNumbers.slice(0, 50), // giới hạn 50 dòng đầu để response không quá dài
+          },
+          { status: 422 }
+        );
+      }
+    }
 
     await client.query('BEGIN');
 
@@ -154,11 +195,20 @@ export async function POST(request: NextRequest) {
 
     await client.query('COMMIT');
 
+    // ===== FIX #2: log rõ danh sách row_number bị skip ra server log,
+    // để bạn tra ngược trong sheet xem đúng dòng nào đang thiếu channel/buying_type/...
+    if (skippedRowNumbers.length > 0) {
+      console.warn(
+        `[SYNC SKIP] table="${config.table}" tab="${tab_name}" sheet_id="${sheet_id}": ${skippedRows} dòng bị skip, row_number = [${skippedRowNumbers.join(', ')}]`
+      );
+    }
+
     return NextResponse.json({
       projectCode, table: config.table,
       changeType: change_type ?? 'UPSERT',
       fullReplace: useFullReplace,
-      successRows, failedRows, skippedRows, totalRows: rawRows.length,
+      successRows, failedRows, skippedRows, totalRows: rows.length,
+      skippedRowNumbers, // trả về luôn trong response để Apps Script log ra được nếu cần
     });
   } catch (e) {
     await client.query('ROLLBACK');
