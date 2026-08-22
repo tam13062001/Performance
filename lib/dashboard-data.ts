@@ -399,6 +399,13 @@ export function fillMissingDeliveryStatus(
   if (delivery.length === 0) return data;
 
   const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
+
+  // "No plan" không tính là status thật — coi như rỗng để vẫn thử merge
+  const hasRealStatus = (s: string | null | undefined) => {
+    const v = norm(s);
+    return v !== "" && v !== "no plan";
+  };
+
   const keyFull = (r: { region: string; phase: string; channel: string; buying_type: string; asset: string }) =>
     `${norm(r.region)}|${norm(r.phase)}|${norm(r.channel)}|${norm(r.buying_type)}|${norm(r.asset)}`;
   const keyLoose = (r: { region: string; phase: string; channel: string; buying_type: string }) =>
@@ -411,29 +418,19 @@ export function fillMissingDeliveryStatus(
     if (!looseMap.has(keyLoose(d))) looseMap.set(keyLoose(d), d);
   }
 
-  if (typeof window !== "undefined") {
-    console.debug("[fillMissingDeliveryStatus] delivery keys:", [...looseMap.keys()]);
-  }
-
   return data.map((r) => {
-    const hasStatus = !!(r.delivery_status || r.cost_status);
+    // CHANGED: chỉ giữ nguyên nếu status là "thật" (khác "No plan"/rỗng)
+    const hasStatus = hasRealStatus(r.delivery_status) || hasRealStatus(r.cost_status);
     if (hasStatus) return r;
 
     const match = fullMap.get(keyFull(r)) ?? looseMap.get(keyLoose(r));
-
-    if (!match && typeof window !== "undefined") {
-      console.debug("[fillMissingDeliveryStatus] NO MATCH for data row:", {
-        rowKey: keyLoose(r),
-        region: r.region, phase: r.phase, channel: r.channel, buying_type: r.buying_type,
-      });
-    }
-
     if (!match) return r;
 
     return {
       ...r,
-      delivery_status: r.delivery_status ?? match.delivery_status ?? null,
-      cost_status: r.cost_status ?? match.cost_status ?? null,
+      // CHANGED: dùng status mới từ match, không giữ "No plan" cũ nữa
+      delivery_status: hasRealStatus(r.delivery_status) ? r.delivery_status : (match.delivery_status ?? r.delivery_status),
+      cost_status: hasRealStatus(r.cost_status) ? r.cost_status : (match.cost_status ?? r.cost_status),
     };
   });
 }
