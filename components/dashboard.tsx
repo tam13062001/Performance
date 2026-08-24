@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Calendar, Info, Moon, Search, Share2, Sparkles, Sun, ChevronLeft, ChevronRight, X, SquarePlay } from "lucide-react";
 import { ShareManager } from "./share-manager";
 import { Sidebar, navMeta, type PageId } from "./sidebar";
 import { ImportCenter } from "./import-center";
@@ -693,26 +693,36 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
   );
 }
 
-export function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta"; periodMonth: string; planView: "MTD" | "YTD" }) {
+export function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta" | "Youtube"; periodMonth: string; planView: "MTD" | "YTD" }) {
   const isGoogle = platform === "Google";
+  const isYoutube = platform === "Youtube";
   const levels = [
     { id: "campaign", label: "Campaign" },
-    { id: "adgroup", label: isGoogle ? "Ad Group" : "Ad Set" },
+    { id: "adgroup", label: isGoogle || isYoutube ? "Ad Group" : "Ad Set" },
     { id: "audience", label: "Audience" },
     { id: isGoogle ? "keywords" : "creative", label: isGoogle ? "Keywords" : "Creative" },
   ];
   const [level, setLevel] = useState<string>("campaign");
   const { loading, kpis } = usePlanData(projectCode, periodMonth);
 
+  const bannerClass = isGoogle ? "google" : isYoutube ? "youtube" : "meta";
+  const bannerIcon = isGoogle ? <Search size={40} /> : isYoutube ? <SquarePlay size={40} /> : <Share2 size={40} />;
+  const bannerTitle = isGoogle ? "Google Ads" : isYoutube ? "YouTube Ads" : "Meta Ads";
+  const bannerDesc = isGoogle
+    ? "Campaign, Ad Group Performance (SEM)."
+    : isYoutube
+    ? "Campaign, Ad Group Performance (Video)."
+    : "Campaign, Ad Set Performance (Facebook).";
+
   return (
     <>
-      <div className={`channel-banner ${isGoogle ? "google" : "meta"}`}>
+      <div className={`channel-banner ${bannerClass}`}>
         <div>
           <span>Channel dashboard</span>
-          <h2>{isGoogle ? "Google Ads" : "Meta Ads"}</h2>
-          <p>{isGoogle ? "Campaign, Ad Group Performance (SEM)." : "Campaign, Ad Set Performance (Facebook)."}</p>
+          <h2>{bannerTitle}</h2>
+          <p>{bannerDesc}</p>
         </div>
-        {isGoogle ? <Search size={40} /> : <Share2 size={40} />}
+        {bannerIcon}
       </div>
 
       {!loading && <KpiCards cards={kpis} />}
@@ -726,7 +736,11 @@ export function ChannelDashboard({ projectCode, platform, periodMonth, planView 
       </div>
 
       {(level === "campaign" || level === "adgroup") && (
-        <ExecutionSection projectCode={projectCode} platform={platform} level={level as "campaign" | "adgroup"} />
+        isYoutube ? (
+          <NotAvailableNotice what={`${level === "campaign" ? "Campaign" : "Ad Group"} performance cho YouTube`} />
+        ) : (
+          <ExecutionSection projectCode={projectCode} platform={platform as "Google" | "Meta"} level={level as "campaign" | "adgroup"} />
+        )
       )}
       {level === "audience" && (
         <PlatformAudienceSection projectCode={projectCode} periodMonth={periodMonth} platform={platform} />
@@ -745,15 +759,15 @@ function PlatformAudienceSection({
 }: {
   projectCode: string;
   periodMonth: string;
-  platform: "Google" | "Meta";
+  platform: "Google" | "Meta" | "Youtube";
 }) {
-  const [dim, setDim] = useState<"age" | "gender" | "region">("age");
+  const [dim, setDim] = useState<"age" | "gender" | "region" | "device">("age");
   const [view, setView] = useState<"value" | "campaign">("value");
   const [rows, setRows] = useState<DemographicRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const platformKey = platform === "Google" ? "google" : "meta";
+  const platformKey = platform === "Google" ? "google" : platform === "Youtube" ? "youtube" : "meta";
 
   useEffect(() => {
     let cancelled = false;
@@ -767,6 +781,7 @@ function PlatformAudienceSection({
       cancelled = true;
     };
   }, [projectCode, periodMonth, dim, platformKey]);
+
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
   const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
@@ -964,6 +979,13 @@ const demoTabs: { id: "age" | "gender" | "region"; label: string }[] = [
   { id: "age", label: "Độ tuổi" },
   { id: "gender", label: "Giới tính" },
   { id: "region", label: "Khu vực" },
+];
+
+const platformDemoTabs: { id: "age" | "gender" | "region" | "device"; label: string }[] = [
+  { id: "age", label: "Độ tuổi" },
+  { id: "gender", label: "Giới tính" },
+  { id: "region", label: "Khu vực" },
+  { id: "device", label: "Thiết bị" },
 ];
 
 export function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
@@ -1292,6 +1314,7 @@ export function Dashboard() {
           {page === "audience" && dbProjectCode && periodMonth && <AudiencePage projectCode={dbProjectCode} periodMonth={periodMonth} />}
           {page === "google" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
           {page === "meta" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
+          {page === "youtube" && dbProjectCode && <ChannelDashboard projectCode={dbProjectCode} platform="Youtube" periodMonth={periodMonth} planView={planView} />}  
           {page === "taxonomy" && periodMonth && dbProjectCode && <PlanPage projectCode={dbProjectCode} periodMonth={periodMonth} />}
 
           {page === "import" && <ImportCenter />}

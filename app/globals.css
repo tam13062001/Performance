@@ -847,7 +847,10 @@ td.mono {
   background: linear-gradient(135deg, rgba(34, 211, 238, 0.2), var(--panel) 70%);
   border-color: rgba(34, 211, 238, 0.4);
 }
-
+.channel-banner.youtube {
+  background: linear-gradient(135deg, rgba(245, 77, 55, 0.832), var(--panel) 70%);
+  border-color: rgb(252, 5, 5);
+}
 /* ---------- Charts ---------- */
 .chart-wrap {
   position: relative;

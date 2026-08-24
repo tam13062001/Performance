@@ -12,6 +12,7 @@ import {
   Share2,
   Store,
   Users,
+  SquarePlay,
 } from "lucide-react"
 import type { Project } from "@/lib/projects"
 
@@ -22,6 +23,7 @@ export type PageId =
   | "audience"
   | "google"
   | "meta"
+  | "youtube"
   | "taxonomy"
   | "reports"
   | "import"
@@ -41,6 +43,7 @@ const campaign: NavItem[] = [
 const channels: NavItem[] = [
   { id: "google", label: "Google Ads", title: "Google Ads Dashboard", desc: "Campaign, Ad Group, Audience và Keyword Performance.", Icon: Search },
   { id: "meta", label: "Meta Ads", title: "Meta Ads Dashboard", desc: "Campaign, Ad Set, Audience và Creative Intelligence.", Icon: Share2 },
+  { id: "youtube", label: "Youtube Ads", title: "Youtube Ads Dashboard", desc: "Campaign, Ad Set, Audience và Creative Intelligence.", Icon: SquarePlay },
 ]
 
 const governance: NavItem[] = [

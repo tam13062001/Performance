@@ -6,27 +6,40 @@ export async function syncAllForProject(
   projectCode: string,
   spreadsheetId: string,
   table?: string,
+  testMode: boolean = true,
+  tabFilter?: string
 ): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
 
-  if (!table || table === 'ad_daily_metrics') {
+  // Bỏ qua sync master data nếu đang lọc tab cụ thể
+  if (!tabFilter && (!table || table === 'ad_daily_metrics')) {
     results.push(await syncMasterDataForProject(projectCode, spreadsheetId));
   }
 
-  const configs = await getAllRawConfigsForProject(projectCode); // ⬅️ thêm await
+  const configs = await getAllRawConfigsForProject(projectCode);
+  let matchCount = 0;
+
   for (const config of configs) {
     if (table && config.table !== table) continue;
-    results.push(await syncRawSheet(projectCode, spreadsheetId, config));
+    
+    if (tabFilter) {
+      const tabNames = Array.isArray(config.tabName) ? config.tabName : [config.tabName];
+      const isMatch = tabNames.some(t => t.toLowerCase().includes(tabFilter.toLowerCase()));
+      if (!isMatch) continue;
+    }
+
+    matchCount++;
+    results.push(await syncRawSheet(projectCode, spreadsheetId, config, testMode));
   }
 
-  if (table && results.length === 0) {
+  if (matchCount === 0) {
     results.push({
       projectCode,
-      table,
+      table: table || 'All',
       totalRows: 0,
       successRows: 0,
       failedRows: 0,
-      errorMessage: `Không tìm thấy config nào có table = "${table}" cho project "${projectCode}". Kiểm tra lại tên bảng.`,
+      errorMessage: `Không tìm thấy config nào khớp với điều kiện (table: ${table || 'Bất kỳ'}, tab: ${tabFilter || 'Bất kỳ'}).`,
     });
   }
 
