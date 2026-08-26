@@ -521,9 +521,27 @@ async function getDemographicSheetIds(projectCode: string): Promise<{ sem?: stri
 
 export async function getAllRawConfigsForProject(projectCode: string): Promise<RowSyncConfig[]> {
   const isTanakan = projectCode !== 'MMU';
-  const configs: RowSyncConfig[] = []; // (Tôi lược bớt các config report cũ cho gọn, bạn bổ sung vào nhé)
+  const configs: RowSyncConfig[] = [];
+
+  // --- các config report/raw còn thiếu ---
+  configs.push(buildDateSelectionConfig(projectCode));
+  configs.push(buildUnitCostPlanConfig(projectCode, 'YTD'));
+  configs.push(buildUnitCostPlanConfig(projectCode, 'MTD'));
+  configs.push(buildReportConfig(projectCode, 'YTD'));
+  configs.push(buildReportConfig(projectCode, 'MTD'));
+  configs.push(buildDataConfig(projectCode, 'YTD'));
+  configs.push(buildDataConfig(projectCode, 'MTD'));
+  configs.push(buildDeliveryStatusConfig(projectCode, 'YTD'));
+  configs.push(buildDeliveryStatusConfig(projectCode, 'MTD'));
+  configs.push(FACEBOOK_CONFIG);
+  configs.push(TIKTOK_CONFIG);
+  configs.push(buildAdxConfig(projectCode));
+  configs.push(buildMbInpageConfig(projectCode));
+  configs.push(buildSemYoutubeConfig('ad_raw_sem_data', 'SEM_DATA', projectCode));
+  configs.push(buildSemYoutubeConfig('ad_raw_youtube_data', 'YOUTUBE_DATA', projectCode));
 
   if (isTanakan) {
+
     const demoSheets = await getDemographicSheetIds(projectCode);
     const dimensions = ['age', 'gender', 'region', 'device'] as const;
 
