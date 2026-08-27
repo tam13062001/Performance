@@ -646,7 +646,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
               labels={rows.map((r) => r.name)}
               impressions={rows.map((r) => r.impressions)}
               reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined}
-              maxLabelLength={4}
+              maxLabelLength={40}
             />
           </div>
           {/* LƯU Ý: ChartInsights vẫn nhận full tên (r.name) để AI đọc được chính xác dữ liệu */}
@@ -659,7 +659,7 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
             <RateLineChart
               labels={rows.map((r) => r.name)}
               ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
-              maxLabelLength={4}
+              maxLabelLength={40}
             />
           </div>
           {/* <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} /> */}
