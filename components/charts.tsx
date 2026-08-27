@@ -91,24 +91,71 @@ function baseOptions(): ChartOptions {
   }
 }
 
-// Wrap a label into multiple lines by word, keeping each line within maxLen so
-// long campaign names stay fully readable instead of overflowing the plot.
+// Split a raw label into breakable tokens. Names in this project are often
+// underscore-joined (e.g. "VUQ3_CONSIDERATION_CPC_Image_AFF_HN-BKK_New_RMK")
+// with no spaces at all, so splitting on whitespace alone (the old approach)
+// never finds a break point and the whole string stays on one line. Here we
+// treat "_", "-", and " " as break points, keeping the delimiter attached to
+// the token that precedes it so words like "HN-BKK" still read naturally.
+function splitIntoTokens(raw: string): string[] {
+  const tokens: string[] = []
+  let current = ""
+  for (const ch of raw) {
+    current += ch
+    if (ch === "_" || ch === "-" || ch === " ") {
+      tokens.push(current)
+      current = ""
+    }
+  }
+  if (current) tokens.push(current)
+  return tokens
+}
+
+// Wrap a label into multiple lines, keeping each line within maxLen so long
+// campaign/ad names stay fully readable instead of overflowing the plot.
+// Breaks on underscores/hyphens/spaces; if a single token is still longer
+// than maxLen (no delimiters at all), it gets hard-wrapped by character so
+// it can never blow past the line width.
 function wrapLabel(raw: string, maxLen = 16): string[] {
-  const words = raw.split(/\s+/)
+  const tokens = splitIntoTokens(raw)
   const lines: string[] = []
   let current = ""
-  for (const word of words) {
+  for (const token of tokens) {
+    if (token.length > maxLen) {
+      if (current) {
+        lines.push(current)
+        current = ""
+      }
+      let remaining = token
+      while (remaining.length > maxLen) {
+        lines.push(remaining.slice(0, maxLen))
+        remaining = remaining.slice(maxLen)
+      }
+      current = remaining
+      continue
+    }
     if (!current) {
-      current = word
-    } else if ((current + " " + word).length <= maxLen) {
-      current += " " + word
+      current = token
+    } else if ((current + token).length <= maxLen) {
+      current += token
     } else {
       lines.push(current)
-      current = word
+      current = token
     }
   }
   if (current) lines.push(current)
   return lines
+}
+
+// Giống wrapLabel nhưng giới hạn tối đa maxLines dòng — nếu label dài hơn số
+// dòng cho phép, dòng cuối cùng sẽ được cắt bớt và thêm "…" để không tràn layout.
+function wrapMultiline(raw: string, maxLen: number, maxLines: number): string[] {
+  const lines = wrapLabel(raw, maxLen)
+  if (lines.length <= maxLines) return lines
+  const trimmed = lines.slice(0, maxLines)
+  const last = trimmed[maxLines - 1]
+  trimmed[maxLines - 1] = (last.length > 1 ? last.slice(0, -1) : last) + "…"
+  return trimmed
 }
 
 // Shared x-axis config. Long category labels (e.g. full campaign names) wrap
@@ -224,19 +271,23 @@ export function ImpressionsReachCtrChart({
   return <Bar data={data as ChartData<"bar">} options={{ ...baseOptions(), scales: axes(true) }} />
 }
 
-export function VolumeBarChart({ 
-  labels, 
-  impressions, 
-  reach, 
-  maxLabelLength = 15 // <--- Nhận prop với giá trị mặc định là 15
-}: { 
-  labels: string[]; 
-  impressions: number[]; 
+export function VolumeBarChart({
+  labels,
+  impressions,
+  reach,
+  maxLabelLength = 14, // độ dài mỗi dòng — giảm xuống để label chia thành 2-3 dòng thay vì 1 dòng dài
+  maxLabelLines = 3, // số dòng tối đa cho name trên trục X
+  minBarWidth = 90, // độ rộng tối thiểu (px) dành cho mỗi cột — chart sẽ tự giãn rộng ra và cho phép cuộn ngang thay vì bóp chật nhãn
+}: {
+  labels: string[];
+  impressions: number[];
   reach?: number[];
-  maxLabelLength?: number; 
+  maxLabelLength?: number;
+  maxLabelLines?: number;
+  minBarWidth?: number;
 }) {
   const c = useClientTheme();
-  
+
   const datasets: ChartData<"bar">["datasets"] = [
     {
       label: "Impressions",
@@ -245,7 +296,7 @@ export function VolumeBarChart({
       borderRadius: 6,
     },
   ];
-  
+
   if (reach) {
     datasets.push({
       label: "Reach",
@@ -267,14 +318,12 @@ export function VolumeBarChart({
         ...defaultScales.x,
         ticks: {
           ...(defaultScales.x?.ticks || {}),
-          // Cắt ngắn nhãn trên trục X bằng biến maxLabelLength
+          // Xuống hàng theo từ (word-wrap) thay vì cắt 1 dòng bằng "…",
+          // tối đa maxLabelLines dòng để không bị miss thông tin.
           callback: function (value: any, index: number) {
             const originalLabel = labels[index] || "";
-            // Chỉ cắt ngắn khi có nhiều hơn 2 nhãn — ít nhãn thì hiển thị full text cho dễ đọc
-            if (labels.length > 2 && originalLabel.length > maxLabelLength) {
-              return originalLabel.substring(0, maxLabelLength) + "…";
-            }
-            return originalLabel;
+            if (labels.length <= 2) return originalLabel;
+            return wrapMultiline(originalLabel, maxLabelLength, maxLabelLines);
           },
         },
       },
@@ -294,22 +343,37 @@ export function VolumeBarChart({
     },
   };
 
-  return <Bar data={{ labels, datasets }} options={customOptions} />;
+  // Chart canvas được đặt trong 1 khung có minWidth tính theo số lượng nhãn.
+  // Khi số cột nhiều/tên dài, khung sẽ rộng hơn container cha và tự cuộn
+  // ngang (overflow-x: auto) thay vì bóp từng cột lại quá chật.
+  const chartMinWidth = Math.max(labels.length * minBarWidth, 0);
+
+  return (
+    <div style={{ overflowX: "auto", width: "100%", height: "100%" }}>
+      <div style={{ minWidth: chartMinWidth, height: "100%" }}>
+        <Bar data={{ labels, datasets }} options={{ ...customOptions, maintainAspectRatio: false }} />
+      </div>
+    </div>
+  );
 }
 
-export function RateLineChart({ 
-  labels, 
-  ctr, 
-  frequency, 
-  maxLabelLength = 15 // <--- Giá trị mặc định là 15 ký tự
-}: { 
-  labels: string[]; 
-  ctr: number[]; 
+export function RateLineChart({
+  labels,
+  ctr,
+  frequency,
+  maxLabelLength = 14, // độ dài mỗi dòng — giảm xuống để label chia thành 2-3 dòng thay vì 1 dòng dài
+  maxLabelLines = 3, // số dòng tối đa cho name trên trục X
+  minBarWidth = 90, // độ rộng tối thiểu (px) dành cho mỗi điểm — chart sẽ tự giãn rộng ra và cho phép cuộn ngang thay vì bóp chật nhãn
+}: {
+  labels: string[];
+  ctr: number[];
   frequency?: number[];
-  maxLabelLength?: number; 
+  maxLabelLength?: number;
+  maxLabelLines?: number;
+  minBarWidth?: number;
 }) {
   const c = useClientTheme();
-  
+
   const datasets: ChartData<"line">["datasets"] = [
     {
       label: "CTR (%)",
@@ -322,7 +386,7 @@ export function RateLineChart({
       yAxisID: "y",
     },
   ];
-  
+
   if (frequency) {
     datasets.push({
       label: "Frequency",
@@ -357,23 +421,22 @@ export function RateLineChart({
         ...(baseScales.x?.ticks || {}),
         callback: function (value: any, index: number) {
           const originalLabel = labels[index] || "";
-          
-          // Chỉ cắt ngắn khi có nhiều hơn 2 nhãn — ít nhãn thì hiển thị full text cho dễ đọc
-          if (labels.length > 2 && originalLabel.length > maxLabelLength) {
-            return originalLabel.substring(0, maxLabelLength) + "…";
-          }
-          return originalLabel;
+
+          // Xuống hàng theo từ (word-wrap) thay vì cắt 1 dòng bằng "…",
+          // tối đa maxLabelLines dòng để không bị miss thông tin.
+          if (labels.length <= 2) return originalLabel;
+          return wrapMultiline(originalLabel, maxLabelLength, maxLabelLines);
         },
       },
     },
     y: {
       ...(baseScales.y || {}),
-      beginAtZero: true, // <--- Bắt buộc trục Y bên trái bắt đầu từ 0
+      beginAtZero: true, // Bắt buộc trục Y bên trái bắt đầu từ 0
     },
     ...(baseScales.y1 && {
       y1: {
         ...baseScales.y1,
-        beginAtZero: true, // <--- Bắt buộc trục Y bên phải (nếu có frequency) bắt đầu từ 0
+        beginAtZero: true, // Bắt buộc trục Y bên phải (nếu có frequency) bắt đầu từ 0
       }
     })
   };
@@ -383,7 +446,7 @@ export function RateLineChart({
     ...bOptions,
     plugins: {
       ...bOptions.plugins,
-      legend: { display: !!frequency }, 
+      legend: { display: !!frequency },
       tooltip: {
         ...(bOptions.plugins?.tooltip || {}),
         callbacks: {
