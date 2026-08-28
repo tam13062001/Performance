@@ -240,16 +240,24 @@ function buildDateSelectionConfig(projectCode: string): RowSyncConfig {
  * sheet không có thì get() trả undefined -> tự thành null/'' an toàn.
  * Alias 'quanity' giữ lại vì comment gốc ghi rõ đây là lỗi chính tả có
  * thật trong header sheet (không phải typo của tôi).
+ *
+ * 🔧 FIX — trước đây đoán cứng tên tab theo `isTanakan` (projectCode !== 'MMU'),
+ * nên với project không phải MMU nhưng vẫn dùng tab UNIT_COST_PLAN không
+ * prefix (VD VUQ3), code sẽ đi tìm nhầm 'YTD_UNIT_COST_PLAN' -> 404 "không
+ * tìm thấy config". Đây là cùng 1 lớp bug đã fix cho DELIVERY_STATUS, giờ
+ * áp dụng cùng pattern: thử nhiều tên tab ứng viên (mảng), để syncEngine /
+ * findConfigForSheetTab (đã handle Array.isArray(tabName)) tự chọn tab
+ * thực sự tồn tại trong sheet, không đoán cứng theo project nữa.
  * ========================================================= */
 function buildUnitCostPlanConfig(projectCode: string, periodType: 'YTD' | 'MTD'): RowSyncConfig {
-  const isTanakan = projectCode !== 'MMU';
-  const tabName = isTanakan
-    ? periodType === 'YTD' ? 'YTD_UNIT_COST_PLAN' : 'MTD_UNIT_COST_PLAN'
-    : periodType === 'YTD' ? 'UNIT_COST_PLAN' : 'MTD_UNIT_COST_PLAN'; // không tồn tại ở MMU -> auto skip
+  const candidateTabNames =
+    periodType === 'YTD'
+      ? ['YTD_UNIT_COST_PLAN', 'UNIT_COST_PLAN']
+      : ['MTD_UNIT_COST_PLAN'];
 
   return {
     table: 'ad_unit_cost_plan',
-    tabName,
+    tabName: candidateTabNames,
     conflictColumns: `project_id, period_month, region, phase, channel, buying_type, asset, start_date, end_date`,
     deleteScopeColumns: ['period_month'],
     parseRowByHeader: (get) => {
@@ -747,6 +755,8 @@ function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig
  * buildDeliveryStatusConfig gán tabName là 1 MẢNG (candidateTabNames),
  * nên so sánh === với string luôn false -> DELIVERY_STATUS không bao
  * giờ khớp được config qua webhook. Giờ check cả trường hợp mảng.
+ * (Áp dụng chung cho cả UNIT_COST_PLAN sau khi fix — cũng dùng mảng
+ * tabName nên đã được xử lý đúng bởi Array.isArray check này.)
  * ========================================================= */
 export async function findConfigForSheetTab(
   sheetId: string,
