@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Share2, Trash2, Copy, Check } from "lucide-react";
+import { Share2, Trash2, Copy, Check, Pencil, X } from "lucide-react";
 import { SHAREABLE_PAGES, type SharePageId } from "@/lib/share-pages";
 
 type ShareLink = {
@@ -48,6 +48,9 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
   const [secondaryColor, setSecondaryColor] = useState("#22d3ee");
   const [accentColor, setAccentColor] = useState("#f97316");
 
+  // NEW: slug đang được edit; null = đang ở chế độ "tạo mới"
+  const [editingSlug, setEditingSlug] = useState<string | null>(null);
+
   const load = () => {
     setLoading(true);
     fetch(`/api/share?projectCode=${projectCode}`)
@@ -66,7 +69,38 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
     setSelectedPages((cur) => (cur.includes(id) ? cur.filter((p) => p !== id) : [...cur, id]));
   };
 
-  const create = async () => {
+  const resetForm = () => {
+    setEditingSlug(null);
+    setSelectedPages([]);
+    setLabel("");
+    setPassword("");
+    setUseCustomTheme(false);
+    setPrimaryColor("#6366f1");
+    setSecondaryColor("#22d3ee");
+    setAccentColor("#f97316");
+    setError(null);
+  };
+
+  // NEW: nạp dữ liệu link cũ vào form để sửa
+  const startEdit = (l: ShareLink) => {
+    setEditingSlug(l.slug);
+    setSelectedPages(l.allowedPages);
+    setLabel(l.label ?? "");
+    setPassword(""); // không cho sửa password ở đây, tránh nhầm lẫn với đổi password project
+    if (l.theme) {
+      setUseCustomTheme(true);
+      setPrimaryColor(l.theme.primary);
+      setSecondaryColor(l.theme.secondary);
+      setAccentColor(l.theme.accent);
+    } else {
+      setUseCustomTheme(false);
+    }
+    setError(null);
+    // cuộn lên form cho dễ thấy
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const submit = async () => {
     if (selectedPages.length === 0) {
       setError("Chọn ít nhất 1 phần để share.");
       return;
@@ -74,27 +108,37 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
     setCreating(true);
     setError(null);
     try {
+      const isEditing = editingSlug !== null;
       const res = await fetch("/api/share", {
-        method: "POST",
+        method: isEditing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectCode,
-          allowedPages: selectedPages,
-          label: label || undefined,
-          password: password || undefined,
-          theme: useCustomTheme
-            ? { primary: primaryColor, secondary: secondaryColor, accent: accentColor }
-            : undefined,
-        }),
+        body: JSON.stringify(
+          isEditing
+            ? {
+                slug: editingSlug,
+                allowedPages: selectedPages,
+                label: label || null,
+                theme: useCustomTheme
+                  ? { primary: primaryColor, secondary: secondaryColor, accent: accentColor }
+                  : null,
+              }
+            : {
+                projectCode,
+                allowedPages: selectedPages,
+                label: label || undefined,
+                password: password || undefined,
+                theme: useCustomTheme
+                  ? { primary: primaryColor, secondary: secondaryColor, accent: accentColor }
+                  : undefined,
+              }
+        ),
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.error ?? "Không tạo được link");
+        setError(json.error ?? (isEditing ? "Không sửa được link" : "Không tạo được link"));
         return;
       }
-      setSelectedPages([]);
-      setLabel("");
-      setPassword("");
+      resetForm();
       load();
     } catch (e) {
       setError((e as Error).message);
@@ -105,6 +149,7 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
 
   const revoke = async (slug: string) => {
     await fetch(`/api/share?slug=${slug}`, { method: "DELETE" });
+    if (editingSlug === slug) resetForm();
     load();
   };
 
@@ -114,6 +159,8 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
     setTimeout(() => setCopiedSlug(null), 1500);
   };
 
+  const isEditing = editingSlug !== null;
+
   return (
     <article className="card" style={{ background: C.bg, color: C.text }}>
       <div className="card-head" style={{ borderColor: C.border }}>
@@ -121,12 +168,47 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           <small style={{ color: C.textMuted }}>Share cho client</small>
           <h3 style={{ color: C.text }}>
             <Share2 size={16} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-            Tạo link chia sẻ
+            {isEditing ? "Sửa link chia sẻ" : "Tạo link chia sẻ"}
           </h3>
         </div>
+        {isEditing && (
+          <button
+            onClick={resetForm}
+            title="Huỷ sửa"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: C.bg,
+              border: `1px solid ${C.border}`,
+              borderRadius: 6,
+              padding: "4px 10px",
+              cursor: "pointer",
+              color: C.textMuted,
+              fontSize: 12,
+            }}
+          >
+            <X size={12} /> Huỷ
+          </button>
+        )}
       </div>
 
       <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        {isEditing && (
+          <div
+            style={{
+              fontSize: 12,
+              color: C.textMuted,
+              background: "#f9fafb",
+              border: `1px solid ${C.border}`,
+              borderRadius: 6,
+              padding: "8px 10px",
+            }}
+          >
+            Đang sửa <b style={{ color: C.text }}>/share/{editingSlug}</b>
+          </div>
+        )}
+
         <div>
           <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 8 }}>Chọn phần muốn share:</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -165,19 +247,22 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           }}
         />
 
-        <input
-          type="password"
-          placeholder="Mật khẩu cho project này (để trống nếu giữ nguyên password cũ)"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{
-            padding: "8px 10px",
-            borderRadius: 6,
-            border: `1px solid ${C.border}`,
-            background: C.bg,
-            color: C.text,
-          }}
-        />
+        {/* Khi edit, không cho đổi password ở đây để tránh nhầm với đổi password chung của project */}
+        {!isEditing && (
+          <input
+            type="password"
+            placeholder="Mật khẩu cho project này (để trống nếu giữ nguyên password cũ)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: `1px solid ${C.border}`,
+              background: C.bg,
+              color: C.text,
+            }}
+          />
+        )}
 
         <div>
           <label
@@ -265,22 +350,40 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
 
         {error && <p style={{ color: C.danger, fontSize: 13 }}>{error}</p>}
 
-        <button
-          onClick={create}
-          disabled={creating}
-          style={{
-            alignSelf: "flex-start",
-            padding: "8px 16px",
-            borderRadius: 6,
-            border: "none",
-            background: C.accent,
-            color: C.accentText,
-            cursor: creating ? "not-allowed" : "pointer",
-            opacity: creating ? 0.6 : 1,
-          }}
-        >
-          {creating ? "Đang tạo…" : "Tạo link share"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={submit}
+            disabled={creating}
+            style={{
+              alignSelf: "flex-start",
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "none",
+              background: C.accent,
+              color: C.accentText,
+              cursor: creating ? "not-allowed" : "pointer",
+              opacity: creating ? 0.6 : 1,
+            }}
+          >
+            {creating ? "Đang lưu…" : isEditing ? "Lưu thay đổi" : "Tạo link share"}
+          </button>
+          {isEditing && (
+            <button
+              onClick={resetForm}
+              style={{
+                alignSelf: "flex-start",
+                padding: "8px 16px",
+                borderRadius: 6,
+                border: `1px solid ${C.border}`,
+                background: C.bg,
+                color: C.text,
+                cursor: "pointer",
+              }}
+            >
+              Huỷ
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="table-wrap" style={{ padding: "0 4px 4px" }}>
@@ -293,10 +396,10 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
           }}
         >
           <colgroup>
+            <col style={{ width: "24%" }} />
+            <col style={{ width: "34%" }} />
+            <col style={{ width: "16%" }} />
             <col style={{ width: "26%" }} />
-            <col style={{ width: "38%" }} />
-            <col style={{ width: "18%" }} />
-            <col style={{ width: "18%" }} />
           </colgroup>
           <thead>
             <tr style={{ color: C.textMuted, borderBottom: `1px solid ${C.border}` }}>
@@ -314,6 +417,7 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                   opacity: l.revokedAt ? 0.55 : 1,
                   color: C.text,
                   borderBottom: `1px solid ${C.border}`,
+                  background: editingSlug === l.slug ? "#f9fafb" : undefined,
                 }}
               >
                 <td className="mono" style={{ color: C.text, padding: "10px 12px", verticalAlign: "top", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -336,6 +440,9 @@ export function ShareManager({ projectCode }: { projectCode: string }) {
                 <td style={{ padding: "10px 12px", verticalAlign: "top", textAlign: "right" }}>
                   {!l.revokedAt ? (
                     <div style={{ display: "inline-flex", gap: 8 }}>
+                      <button onClick={() => startEdit(l)} title="Sửa" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.text }}>
+                        <Pencil size={14} />
+                      </button>
                       <button onClick={() => copyLink(l.slug)} title="Copy link" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: 6, cursor: "pointer", color: C.text }}>
                         {copiedSlug === l.slug ? <Check size={14} /> : <Copy size={14} />}
                       </button>

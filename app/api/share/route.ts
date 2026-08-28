@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createShareLink, listShareLinks, revokeShareLink } from '@/lib/share';
+import { createShareLink, listShareLinks, revokeShareLink, updateShareLink } from '@/lib/share';
 
 export async function GET(req: NextRequest) {
   const projectCode = req.nextUrl.searchParams.get('projectCode');
@@ -34,4 +34,21 @@ export async function DELETE(req: NextRequest) {
   if (!slug) return NextResponse.json({ error: 'Thiếu slug' }, { status: 400 });
   await revokeShareLink(slug);
   return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  const { slug, allowedPages, label, theme } = body ?? {};
+
+  if (!slug) return NextResponse.json({ error: 'Thiếu slug' }, { status: 400 });
+  if (allowedPages !== undefined && (!Array.isArray(allowedPages) || allowedPages.length === 0)) {
+    return NextResponse.json({ error: 'allowedPages phải có ít nhất 1 phần tử' }, { status: 400 });
+  }
+
+  try {
+    const link = await updateShareLink(slug, { allowedPages, label, theme });
+    return NextResponse.json({ link });
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+  }
 }

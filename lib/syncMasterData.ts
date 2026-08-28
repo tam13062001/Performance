@@ -2,46 +2,42 @@ import { pool } from './db';
 import { getSheetValues } from './googleSheets';
 import { resolveChannelId, resolveCampaignId, parseSheetNumber, parseSheetDate } from './syncHelpers';
 
-interface MasterDataColumnMap {
-  phase: number;
-  channel: number;
-  reportDate: number;
-  campaignName: number;
-  buyingType: number;
-  startDate: number;
-  endDate: number;
-  reach: number;
-  impressions: number;
-  engagements: number;
-  views: number;
-  clicks: number;
-  linkClicks: number;
-  landingPageViews: number;
-  leads: number;
-  spend: number;
-  region: number | null;
-  asset: number | null;
-}
+// 🔧 REFACTOR — trước đây mỗi project cần khai báo cả 1 map vị trí cột
+// (MasterDataColumnMap, VD channel: 3, campaignName: 6, ...), rất dễ vỡ nếu
+// project mới có thứ tự cột khác, dù TÊN cột giống hệt project cũ. Giờ đọc
+// theo TÊN CỘT (giống hệt pattern parseRowByHeader trong syncConfigs.ts và
+// buildGetter trong webhook route), không quan tâm cột đó nằm ở vị trí nào
+// trong sheet.
+//
+// 🔧 REFACTOR #2 — bỏ luôn mảng hardcode MASTER_DATA_PROJECTS ở code. Danh
+// sách project nào còn dùng layout MASTER_DATA cũ giờ nằm ở cột
+// ad_projects.uses_legacy_master_data (xem add_uses_legacy_master_data.sql).
+// Thêm project mới dùng layout cũ chỉ cần UPDATE cột đó trong DB, không cần
+// sửa/deploy lại code nữa.
 
-// ⚠️ COLUMN_MAPS chỉ áp dụng cho các project CÒN dùng sheet MASTER_DATA kiểu cũ
-// (gộp sẵn mọi dimension trong 1 tab). Từ khi chuyển sang layout chuẩn
-// MTD_DATA/MTD_DELIVERY_STATUS/MTD_REPORT/MTD_UNIT_COST_PLAN (xem syncConfigs.ts),
-// project MỚI KHÔNG CẦN khai báo ở đây nữa — pipeline này sẽ tự skip nếu
-// project không có entry, thay vì báo lỗi.
-const COLUMN_MAPS: Record<string, MasterDataColumnMap> = {
-  TANAKAN: {
-    region: 1, phase: 2, channel: 3, asset: 4, reportDate: 5, campaignName: 6,
-    buyingType: 7, startDate: 8, endDate: 9, reach: 10, impressions: 11,
-    engagements: 12, views: 13, clicks: 14, linkClicks: 15, landingPageViews: 16,
-    leads: 17, spend: 18,
-  },
-  MMU: {
-    region: null, asset: null, phase: 1, channel: 2, reportDate: 3, campaignName: 4,
-    buyingType: 5, startDate: 6, endDate: 7, reach: 8, impressions: 9,
-    engagements: 10, views: 11, clicks: 12, linkClicks: 13, landingPageViews: 14,
-    leads: 15, spend: 16,
-  },
-};
+// Alias tên cột chấp nhận được cho từng field — cùng field có thể được đặt tên
+// hơi khác nhau giữa các sheet (vd "buying_type" vs "buying type"). Thêm alias
+// mới vào đây nếu sheet của project mới đặt tên cột khác 2 cái hiện có.
+const FIELD_ALIASES = {
+  phase: ['phase'],
+  channel: ['channel'],
+  reportDate: ['report_date', 'report date', 'date'],
+  campaignName: ['campaign_name', 'campaign name', 'campaign'],
+  buyingType: ['buying_type', 'buying type'],
+  startDate: ['start_date', 'start date'],
+  endDate: ['end_date', 'end date'],
+  reach: ['reach'],
+  impressions: ['impressions', 'impr.', 'impr'],
+  engagements: ['engagements'],
+  views: ['views'],
+  clicks: ['clicks'],
+  linkClicks: ['link_clicks', 'link clicks'],
+  landingPageViews: ['landing_page_views', 'landing page views'],
+  leads: ['leads'],
+  spend: ['spend'],
+  region: ['region'],
+  asset: ['asset'],
+} as const;
 
 export interface SyncResult {
   projectCode: string;
@@ -53,6 +49,7 @@ export interface SyncResult {
   sampleErrors?: string[];
   mergedDuplicateGroups?: number; // số nhóm dòng bị trùng key đã được cộng dồn lại
   skippedEmpty?: boolean;
+  testMode?: boolean;
 }
 
 // Một dòng đã gộp: giữ nguyên phần dimension, cộng dồn phần metric.
@@ -78,34 +75,63 @@ interface AggregatedRow {
   rowsMerged: number;
 }
 
+function normalizeHeader(v: unknown): string {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+// Giống hệt buildGetter trong webhook route.ts — đọc giá trị 1 dòng theo
+// TÊN cột (qua danh sách alias), không phụ thuộc thứ tự cột thật trong sheet.
+function buildGetter(headers: unknown[], rowValues: unknown[]) {
+  const map = new Map<string, unknown>();
+  headers.forEach((h, idx) => {
+    const raw = normalizeHeader(h);
+    if (!raw) return;
+    if (!map.has(raw)) map.set(raw, rowValues[idx]);
+    const underscored = raw.replace(/\s+/g, '_');
+    if (!map.has(underscored)) map.set(underscored, rowValues[idx]);
+    const spaced = raw.replace(/_/g, ' ');
+    if (!map.has(spaced)) map.set(spaced, rowValues[idx]);
+  });
+
+  return (aliases: readonly string[]) => {
+    for (const alias of aliases) {
+      const key = normalizeHeader(alias);
+      if (map.has(key)) return map.get(key);
+    }
+    return undefined;
+  };
+}
+
 export async function syncMasterDataForProject(
   projectCode: string,
   spreadsheetId: string,
-  tabName: string = 'MASTER_DATA'
+  tabName: string = 'MASTER_DATA',
+  testMode: boolean = false
 ): Promise<SyncResult> {
   const client = await pool.connect();
   let batchId: number | null = null;
 
-  const COL = COLUMN_MAPS[projectCode];
-  if (!COL) {
-    // ⬅️ Đổi từ "lỗi" sang "skip" — project mới theo layout chuẩn MTD_DATA
-    // không cần sheet MASTER_DATA, nên không có mapping ở đây là bình thường,
-    // không phải cấu hình thiếu sót.
-    client.release();
-    return {
-      projectCode,
-      table: 'ad_daily_metrics',
-      totalRows: 0,
-      successRows: 0,
-      failedRows: 0,
-      skippedEmpty: true,
-    };
-  }
-
   try {
-    const projectRes = await client.query(`SELECT id FROM ad_projects WHERE project_code = $1`, [projectCode]);
+    const projectRes = await client.query(
+      `SELECT id, uses_legacy_master_data FROM ad_projects WHERE project_code = $1`,
+      [projectCode]
+    );
     if (projectRes.rows.length === 0) throw new Error(`Không tìm thấy project_code "${projectCode}" trong ad_projects`);
     const projectId = projectRes.rows[0].id;
+
+    if (!projectRes.rows[0].uses_legacy_master_data) {
+      // ⬅️ Skip — project mới theo layout chuẩn MTD_DATA không cần sheet
+      // MASTER_DATA, nên uses_legacy_master_data = false là bình thường,
+      // không phải cấu hình thiếu sót.
+      return {
+        projectCode,
+        table: 'ad_daily_metrics',
+        totalRows: 0,
+        successRows: 0,
+        failedRows: 0,
+        skippedEmpty: true,
+      };
+    }
 
     // ⬅️ Nếu tab MASTER_DATA không tồn tại trong sheet (project chưa từng dùng
     // layout cũ), coi là skip thay vì lỗi — getSheetValues sẽ throw nếu tab
@@ -121,18 +147,35 @@ export async function syncMasterDataForProject(
       throw fetchErr;
     }
 
-    const batchRes = await client.query(
-      `INSERT INTO ad_import_batches (project_id, source_file_name, source_sheet_name, status)
-       VALUES ($1, $2, $3, 'processing') RETURNING id`,
-      [projectId, spreadsheetId, tabName]
-    );
-    batchId = batchRes.rows[0].id;
+    if (rawRows.length === 0) {
+      return { projectCode, table: 'ad_daily_metrics', totalRows: 0, successRows: 0, failedRows: 0, skippedEmpty: true };
+    }
 
-    const dataRows = rawRows.slice(1).filter((row) => row.length > 0 && row[COL.campaignName]);
+    const headers = rawRows[0];
+
+    // testMode: không tạo bản ghi batch thật — batch dùng để audit/trace,
+    // nếu là dry-run thì không cần lưu vết lại trong ad_import_batches.
+    if (!testMode) {
+      const batchRes = await client.query(
+        `INSERT INTO ad_import_batches (project_id, source_file_name, source_sheet_name, status)
+         VALUES ($1, $2, $3, 'processing') RETURNING id`,
+        [projectId, spreadsheetId, tabName]
+      );
+      batchId = batchRes.rows[0].id;
+    }
+
+    // Bỏ các dòng trắng hoàn toàn ở cuối sheet. Dòng thiếu channel/campaign/date
+    // thật sự (dù có nội dung ở cột khác) sẽ được tính là failedRows ở bước dưới,
+    // không lọc mất ở đây để còn báo lỗi chi tiết được.
+    const dataRows = rawRows
+      .slice(1)
+      .filter((row) => row.length > 0 && row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''));
 
     if (dataRows.length === 0) {
-      await client.query(`UPDATE ad_import_batches SET status = 'success', total_rows = 0, success_rows = 0, failed_rows = 0 WHERE id = $1`, [batchId]);
-      return { projectCode, table: 'ad_daily_metrics', totalRows: 0, successRows: 0, failedRows: 0, skippedEmpty: true };
+      if (!testMode) {
+        await client.query(`UPDATE ad_import_batches SET status = 'success', total_rows = 0, success_rows = 0, failed_rows = 0 WHERE id = $1`, [batchId]);
+      }
+      return { projectCode, table: 'ad_daily_metrics', totalRows: 0, successRows: 0, failedRows: 0, skippedEmpty: true, testMode };
     }
 
     let failedRows = 0;
@@ -143,38 +186,43 @@ export async function syncMasterDataForProject(
     // cộng dồn metric lại thành 1 dòng duy nhất, KHÔNG để DB tự bỏ dòng thừa.
     const grouped = new Map<string, AggregatedRow>();
     for (const row of dataRows) {
-      const channelName = String(row[COL.channel] ?? '').trim();
-      const campaignName = String(row[COL.campaignName] ?? '').trim();
-      const reportDate = parseSheetDate(row[COL.reportDate]);
+      const get = buildGetter(headers, row);
+
+      const channelName = String(get(FIELD_ALIASES.channel) ?? '').trim();
+      const campaignName = String(get(FIELD_ALIASES.campaignName) ?? '').trim();
+      const reportDate = parseSheetDate(get(FIELD_ALIASES.reportDate));
 
       if (!channelName || !campaignName || !reportDate) {
         failedRows++;
         if (sampleErrors.length < 5) {
-          sampleErrors.push(`Thiếu dữ liệu bắt buộc (channel="${channelName}", campaign="${campaignName}", date="${row[COL.reportDate]}")`);
+          sampleErrors.push(`Thiếu dữ liệu bắt buộc (channel="${channelName}", campaign="${campaignName}", date="${get(FIELD_ALIASES.reportDate)}")`);
         }
         continue;
       }
 
-      const phase = String(row[COL.phase] ?? 'other').trim().toLowerCase();
-      const buyingType = row[COL.buyingType] ? String(row[COL.buyingType]).trim() : null;
-      const startDate = parseSheetDate(row[COL.startDate]);
-      const endDate = parseSheetDate(row[COL.endDate]);
-      const region = COL.region !== null && row[COL.region] ? String(row[COL.region]).trim() : null;
-      const asset = COL.asset !== null && row[COL.asset] ? String(row[COL.asset]).trim() : null;
+      const phase = String(get(FIELD_ALIASES.phase) ?? 'other').trim().toLowerCase();
+      const buyingTypeRaw = get(FIELD_ALIASES.buyingType);
+      const buyingType = buyingTypeRaw ? String(buyingTypeRaw).trim() : null;
+      const startDate = parseSheetDate(get(FIELD_ALIASES.startDate));
+      const endDate = parseSheetDate(get(FIELD_ALIASES.endDate));
+      const regionRaw = get(FIELD_ALIASES.region);
+      const region = regionRaw ? String(regionRaw).trim() : null;
+      const assetRaw = get(FIELD_ALIASES.asset);
+      const asset = assetRaw ? String(assetRaw).trim() : null;
 
       // PHẢI khớp đúng với conflictColumns của câu INSERT bên dưới
       const key = [channelName.toLowerCase(), campaignName, reportDate, buyingType ?? '', asset ?? ''].join('::');
 
       const existing = grouped.get(key);
-      const reach = parseSheetNumber(row[COL.reach]);
-      const impressions = parseSheetNumber(row[COL.impressions]);
-      const engagements = parseSheetNumber(row[COL.engagements]);
-      const views = parseSheetNumber(row[COL.views]);
-      const clicks = parseSheetNumber(row[COL.clicks]);
-      const linkClicks = parseSheetNumber(row[COL.linkClicks]);
-      const landingPageViews = parseSheetNumber(row[COL.landingPageViews]);
-      const leads = parseSheetNumber(row[COL.leads]);
-      const spend = parseSheetNumber(row[COL.spend]);
+      const reach = parseSheetNumber(get(FIELD_ALIASES.reach));
+      const impressions = parseSheetNumber(get(FIELD_ALIASES.impressions));
+      const engagements = parseSheetNumber(get(FIELD_ALIASES.engagements));
+      const views = parseSheetNumber(get(FIELD_ALIASES.views));
+      const clicks = parseSheetNumber(get(FIELD_ALIASES.clicks));
+      const linkClicks = parseSheetNumber(get(FIELD_ALIASES.linkClicks));
+      const landingPageViews = parseSheetNumber(get(FIELD_ALIASES.landingPageViews));
+      const leads = parseSheetNumber(get(FIELD_ALIASES.leads));
+      const spend = parseSheetNumber(get(FIELD_ALIASES.spend));
 
       if (existing) {
         existing.reach += reach;
@@ -277,16 +325,26 @@ export async function syncMasterDataForProject(
       }
     }
 
-    await client.query('COMMIT');
-    await client.query(
-      `UPDATE ad_import_batches SET status = 'success', total_rows = $1, success_rows = $2, failed_rows = $3 WHERE id = $4`,
-      [dataRows.length, successRows, failedRows, batchId]
-    );
+    if (testMode) {
+      // Dry-run: đã chạy hết logic thật (kể cả resolveChannelId/resolveCampaignId
+      // có thể tự tạo channel/campaign mới nếu chưa tồn tại), nhưng ROLLBACK ở
+      // đây để không có gì — kể cả channel/campaign mới tạo — được ghi thật
+      // vào DB. successRows/failedRows vẫn phản ánh đúng việc GHI SẼ thành công
+      // hay thất bại nếu chạy thật (vì query đã thực thi trong transaction,
+      // chỉ là không commit).
+      await client.query('ROLLBACK');
+    } else {
+      await client.query('COMMIT');
+      await client.query(
+        `UPDATE ad_import_batches SET status = 'success', total_rows = $1, success_rows = $2, failed_rows = $3 WHERE id = $4`,
+        [dataRows.length, successRows, failedRows, batchId]
+      );
+    }
 
     return {
       projectCode, table: 'ad_daily_metrics',
       totalRows: dataRows.length, successRows, failedRows, sampleErrors,
-      mergedDuplicateGroups,
+      mergedDuplicateGroups, testMode,
     };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

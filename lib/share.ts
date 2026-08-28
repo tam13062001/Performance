@@ -145,3 +145,55 @@ export async function verifySharePassword(projectId: string, password: string): 
     if (res.rows.length === 0) return false;
     return verifyPassword(password, res.rows[0].share_password_hash);
 }
+
+export async function updateShareLink(
+    slug: string,
+    params: {
+        allowedPages?: string[];
+        label?: string | null;
+        theme?: { primary: string; secondary: string; accent: string } | null;
+    }
+): Promise<ShareLink> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+
+    if (params.allowedPages !== undefined) {
+        sets.push(`allowed_pages = $${i++}`);
+        values.push(params.allowedPages);
+    }
+    if (params.label !== undefined) {
+        sets.push(`label = $${i++}`);
+        values.push(params.label);
+    }
+    if (params.theme !== undefined) {
+        // theme === null nghĩa là bỏ theme riêng, quay về theme mặc định
+        sets.push(`theme_primary = $${i++}`);
+        values.push(params.theme?.primary ?? null);
+        sets.push(`theme_secondary = $${i++}`);
+        values.push(params.theme?.secondary ?? null);
+        sets.push(`theme_accent = $${i++}`);
+        values.push(params.theme?.accent ?? null);
+    }
+
+    if (sets.length === 0) {
+        const existing = await getShareLinkBySlug(slug);
+        if (!existing) throw new Error(`Không tìm thấy link "${slug}"`);
+        return existing;
+    }
+
+    values.push(slug);
+    const res = await pool.query(
+        `UPDATE ad_share_links SET ${sets.join(', ')}
+     WHERE slug = $${i} AND revoked_at IS NULL
+     RETURNING id, project_id`,
+        values
+    );
+    if (res.rows.length === 0) {
+        throw new Error(`Không tìm thấy link "${slug}" (hoặc link đã bị thu hồi)`);
+    }
+
+    const updated = await getShareLinkBySlug(slug);
+    if (!updated) throw new Error(`Không tìm thấy link "${slug}" sau khi cập nhật`);
+    return updated;
+}

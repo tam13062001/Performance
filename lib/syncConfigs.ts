@@ -96,66 +96,48 @@ export const TIKTOK_CONFIG: RowSyncConfig = {
 
 /* =========================================================
  * SEM_DATA / YOUTUBE_DATA - CẢ 2 project đều có, nhưng thứ tự cột KHÁC NHAU
- * ⚠️ CHƯA MIGRATE - đây thực ra là ứng viên nên migrate (2 layout khác nhau
- * theo project, giống lỗi ad_raw_data), nhưng tôi chưa có header thật của
- * report Google Ads/YouTube xuất ra để map alias chính xác. Gửi tôi vài dòng
- * đầu (header row) của SEM_DATA/YOUTUBE_DATA cho cả 2 project, tôi sẽ migrate.
+ * 🔧 MIGRATED sang parseRowByHeader — không còn phụ thuộc thứ tự cột.
+ * ⚠️ VẪN CHƯA XÁC NHẬN header thật của report Google Ads/YouTube xuất ra —
+ * alias bên dưới là ĐOÁN dựa theo tên field cũ (snake_case + spaced + vài
+ * tên thường gặp trong export Google Ads: "Impr.", "Avg. CPC", "Campaign
+ * state"...). Nếu header thật không khớp alias nào, field đó sẽ ra `null`
+ * ÂM THẦM (không lỗi rõ ràng) — rủi ro hơn cả bug index-based cũ. Gửi tôi
+ * vài dòng đầu (header row) thật của SEM_DATA/YOUTUBE_DATA cho cả 2 project
+ * để xác nhận/chỉnh lại alias cho đúng trước khi tin tưởng data ra.
  * ========================================================= */
 function buildSemYoutubeConfig(table: string, tabName: string, projectCode: string): RowSyncConfig {
   return {
     table,
     tabName,
     conflictColumns: `project_id, report_date, campaign_name`,
-    parseRow: (row) => {
-      if (projectCode !== 'MMU') {
-        const reportDate = parseSheetDate(row[0]);
-        const campaignName = s(row[3]);
-        if (!reportDate || !campaignName) return null;
-        return {
-          report_date: reportDate,
-          campaign_status: s(row[4]),
-          campaign_name: campaignName,
-          currency_code: s(row[9]),
-          trueview_views: n(row[12]),
-          trueview_avg_cpv: nOrNull(row[14]),
-          clicks: n(row[7]),
-          ctr: nOrNull(row[8]),
-          avg_cpc: nOrNull(row[10]),
-          impressions: n(row[6]),
-          cost: n(row[11]),
-          trueview_view_rate: nOrNull(row[13]),
-          search_impr_share: s(row[16]),
-          search_lost_is_rank: s(row[17]),
-          search_lost_is_budget: s(row[18]),
-        };
-      }
-
-      const reportDate = parseSheetDate(row[0]);
-      const campaignName = s(row[2]);
+    parseRowByHeader: (get) => {
+      const reportDate = parseSheetDate(get(['report_date', 'report date', 'date', 'day']));
+      const campaignName = s(get(['campaign_name', 'campaign name', 'campaign']));
       if (!reportDate || !campaignName) return null;
+ 
       return {
         report_date: reportDate,
-        campaign_status: s(row[1]),
         campaign_name: campaignName,
-        budget_name: s(row[3]),
-        currency_code: s(row[4]),
-        budget: nOrNull(row[5]),
-        budget_type: s(row[6]),
-        currency: s(row[7]),
-        serving_status: s(row[8]),
-        status_reasons: s(row[9]),
-        trueview_views: n(row[10]),
-        trueview_avg_cpv: nOrNull(row[11]),
-        clicks: n(row[12]),
-        ctr: nOrNull(row[13]),
-        avg_cpc: nOrNull(row[14]),
-        impressions: n(row[15]),
-        cost: n(row[16]),
-        trueview_view_rate: nOrNull(row[17]),
-        search_impr_share: s(row[18]),
-        search_lost_is_budget: s(row[19]),
-        search_lost_is_rank: s(row[20]),
-        unique_users: nOrNull(row[21]),
+        campaign_status: s(get(['campaign_status', 'campaign status', 'campaign state'])),
+        budget_name: s(get(['budget_name', 'budget name'])),
+        currency_code: s(get(['currency_code', 'currency code'])),
+        budget: nOrNull(get(['budget'])),
+        budget_type: s(get(['budget_type', 'budget type'])),
+        currency: s(get(['currency'])),
+        serving_status: s(get(['serving_status', 'serving status'])),
+        status_reasons: s(get(['status_reasons', 'status reasons'])),
+        trueview_views: n(get(['trueview_views', 'trueview views', 'views'])),
+        trueview_avg_cpv: nOrNull(get(['trueview_avg_cpv', 'trueview avg cpv', 'avg. cpv', 'avg cpv'])),
+        clicks: n(get(['clicks'])),
+        ctr: nOrNull(get(['ctr'])),
+        avg_cpc: nOrNull(get(['avg_cpc', 'avg cpc', 'avg. cpc'])),
+        impressions: n(get(['impressions', 'impr.', 'impr'])),
+        cost: n(get(['cost'])),
+        trueview_view_rate: nOrNull(get(['trueview_view_rate', 'trueview view rate', 'view rate'])),
+        search_impr_share: s(get(['search_impr_share', 'search impr. share', 'search impr share'])),
+        search_lost_is_rank: s(get(['search_lost_is_rank', 'search lost is rank (rank)', 'search lost is (rank)'])),
+        search_lost_is_budget: s(get(['search_lost_is_budget', 'search lost is budget (budget)', 'search lost is (budget)'])),
+        unique_users: nOrNull(get(['unique_users', 'unique users'])),
       };
     },
   };
