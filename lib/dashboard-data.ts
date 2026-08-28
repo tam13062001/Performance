@@ -841,3 +841,137 @@ export function deliveryAlertGroups(data: DataStatusRow[]): AlertGroups {
 
   return { laggingDelivery, overCost };
 }
+
+// ---------- Channel-level KPIs (raw platform table, không lọc theo periodMonth) ----------
+export type ChannelRawRow = Record<string, any>;
+
+export async function loadChannelRawData(
+  projectCode: string,
+  platform: "Google" | "Meta" | "Youtube"
+): Promise<ChannelRawRow[]> {
+  const table =
+    platform === "Google" ? "ad_raw_sem_data" : platform === "Youtube" ? "ad_raw_youtube_data" : "ad_raw_facebook_data";
+  return fetchTable<ChannelRawRow>(table, projectCode);
+}
+
+import type { KpiCard as KpiCardType } from "@/lib/metrics";
+
+
+function toNum(v: any): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return Number.isFinite(n) ? n : null;
+}
+
+function sumField(rows: ChannelRawRow[], key: string): number {
+  return rows.reduce((s, r) => s + (toNum(r[key]) ?? 0), 0);
+}
+
+function avgField(rows: ChannelRawRow[], key: string): number | null {
+  const vals = rows.map((r) => toNum(r[key])).filter((v): v is number => v !== null);
+  if (vals.length === 0) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function hasAnyValid(rows: ChannelRawRow[], key: string): boolean {
+  return rows.some((r) => toNum(r[key]) !== null);
+}
+
+// ---------- Google / SEM (và tạm dùng cho Youtube) ----------
+function googleChannelKpis(rows: ChannelRawRow[]): KpiCardType[] {
+  const cards: KpiCardType[] = [];
+
+  const imp = sumField(rows, "impressions");
+  const clicks = sumField(rows, "clicks");
+  const cost = sumField(rows, "cost");
+  const budget = sumField(rows, "budget");
+  const trueviewViews = sumField(rows, "trueview_views");
+  const uniqueUsers = sumField(rows, "unique_users");
+
+  const ctr = ctrOf(imp, clicks);
+  const cpc = cpcOf(cost, clicks);
+
+  cards.push({ label: "Impressions", value: num(imp), sub: "", trend: "up" });
+  cards.push({ label: "Total Clicks", value: num(clicks), sub: `CPC ${num(cpc)} ₫`, trend: "up" });
+  cards.push({ label: "Total Cost", value: vnd(cost), sub: "", trend: "up" });
+  cards.push({ label: "Average CTR", value: pct(ctr), sub: "Click-Through Rate", trend: "up" });
+
+  if (hasAnyValid(rows, "budget")) {
+    cards.push({ label: "Total Budget", value: vnd(budget), sub: "Ngân sách đặt", trend: "up" });
+  }
+
+
+  if (hasAnyValid(rows, "search_impr_share")) {
+    const share = avgField(rows, "search_impr_share")!;
+    cards.push({ label: "Search Impr. Share", value: pct(share * 100), sub: "", trend: "up" });
+  }
+
+  if (hasAnyValid(rows, "search_lost_is_rank")) {
+    const lostRank = avgField(rows, "search_lost_is_rank")!;
+    cards.push({ label: "Lost IS (Rank)", value: pct(lostRank * 100), sub: "", trend: "up" });
+  }
+
+  if (hasAnyValid(rows, "search_lost_is_budget")) {
+    const lostBudget = avgField(rows, "search_lost_is_budget")!;
+    cards.push({ label: "Lost IS (Budget)", value: pct(lostBudget * 100), sub: "", trend: "up" });
+  }
+
+  if (hasAnyValid(rows, "unique_users")) {
+    cards.push({ label: "Unique Users", value: num(uniqueUsers), sub: "", trend: "up" });
+  }
+
+  return cards;
+}
+
+// ---------- Meta / Facebook ----------
+function metaChannelKpis(rows: ChannelRawRow[]): KpiCardType[] {
+  const cards: KpiCardType[] = [];
+
+  const imp = sumField(rows, "impressions");
+  const reach = sumField(rows, "reach");
+  const clicks = sumField(rows, "clicks");
+  const spend = sumField(rows, "spend");
+  const linkClicks = sumField(rows, "inline_link_clicks");
+  const landingViews = sumField(rows, "landing_page_view");
+  const engagements = sumField(rows, "inline_post_engagement");
+
+  const ctr = ctrOf(imp, clicks);
+  const cpc = cpcOf(spend, clicks);
+  const cpm = imp > 0 ? (spend / imp) * 1000 : 0;
+  const freq = freqOf(imp, reach);
+  const er = erOf(imp, engagements);
+
+  cards.push({ label: "Impressions", value: num(imp), sub: "", trend: "up" });
+  cards.push({ label: "Reach", value: num(reach), sub: `Frequency ${freq.toFixed(2)}x`, trend: "up" });
+  cards.push({ label: "Total Clicks", value: num(clicks), sub: `CPC ${num(cpc)} ₫`, trend: "up" });
+  cards.push({ label: "Total Spend", value: vnd(spend), sub: `CPM ${num(cpm)} ₫`, trend: "up" });
+
+  if (hasAnyValid(rows, "inline_link_clicks")) {
+    cards.push({ label: "Link Clicks", value: num(linkClicks), sub: "", trend: "up" });
+  }
+
+  if (hasAnyValid(rows, "landing_page_view")) {
+    cards.push({ label: "Landing Page Views", value: num(landingViews), sub: "", trend: "up" });
+  }
+
+
+  if (hasAnyValid(rows, "cost_per_landing_page_view")) {
+    const cplpv = avgField(rows, "cost_per_landing_page_view")!;
+    cards.push({ label: "Avg Cost / Landing Page View", value: vnd(cplpv), sub: "", trend: "up" });
+  }
+
+  if (hasAnyValid(rows, "cost_per_inline_post_engagement")) {
+    const cpe = avgField(rows, "cost_per_inline_post_engagement")!;
+    cards.push({ label: "Avg Cost / Engagement", value: vnd(cpe), sub: "", trend: "up" });
+  }
+
+  cards.push({ label: "Average CTR", value: pct(ctr), sub: "Click-Through Rate", trend: "up" });
+  cards.push({ label: "Average CPC", value: vnd(cpc), sub: "Cost Per Click", trend: "up" });
+  cards.push({ label: "Average CPM", value: vnd(cpm), sub: "Cost Per Thousand Impressions", trend: "up" });
+  return cards;
+}
+
+export function channelKpis(platform: "Google" | "Meta" | "Youtube", rows: ChannelRawRow[]): KpiCardType[] {
+  if (rows.length === 0) return [];
+  return platform === "Meta" ? metaChannelKpis(rows) : googleChannelKpis(rows);
+}

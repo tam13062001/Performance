@@ -35,6 +35,8 @@ import {
   aggregateDemographic,
   aggregateDemographicByCampaignDetail,
   deliveryAlertGroups,
+  loadChannelRawData, 
+  channelKpis,
   type AlertRow,
   type CampaignBreakdownRow,
   type DataStatusRow,
@@ -130,6 +132,25 @@ export function useAvailableMonths(projectCode: string) {
     };
   }, [projectCode]);
   return months;
+}
+
+function useChannelRawData(projectCode: string, platform: "Google" | "Meta" | "Youtube") {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof loadChannelRawData>>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadChannelRawData(projectCode, platform)
+      .then((r) => !cancelled && setRows(r))
+      .catch((e) => console.error("useChannelRawData:", e))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode, platform]);
+
+  return { rows, loading };
 }
 
 export function usePlanData(projectCode: string, periodMonth: string) {
@@ -351,9 +372,13 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
 
 /* ---------------- Campaign Overview ---------------- */
 export function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
-  const { loading, error, kpis, signals, score, campaignRows, data, biz } = usePlanData(projectCode, periodMonth);
+  const { loading, error, kpis, signals, score, campaignRows, data } = usePlanData(projectCode, periodMonth);
   const alertGroups = useMemo(() => deliveryAlertGroups(data), [data]);
-  const bizRows = biz("phase");
+
+  // THAY: 3 chart theo Phase (Volume Delivery, Efficiency Trend, Volume & Efficiency)
+  // giờ dùng data từ ad_raw_data (data status) thay vì report từ ad_raw_report,
+  // vì ad_raw_data có dữ liệu đầy đủ/chính xác hơn cho phase Conversion.
+  const bizRows = useMemo(() => businessBreakdown("phase", data), [data]);
 
   const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
 
@@ -473,7 +498,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             <thead>
               <tr>
                 <th>Campaign</th><th>Buying type</th>
-                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Views</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
+                <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Views</th><th className="right">Clicks</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
               </tr> 
             </thead>
             <tbody>
@@ -484,6 +509,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
                   <td className="right">{num(r.impressions)}</td>
                   <td className="right">{num(r.reach)}</td>
                   <td className="right">{num(r.view)}</td>
+                  <td className="right">{num(r.clicks)}</td>
                   <td className="right">{num(r.engagement)}</td>
                   <td className="right">{pct(r.ctr)}</td>
                   <td className="right">{pct(r.er)}</td>
@@ -703,7 +729,10 @@ export function ChannelDashboard({ projectCode, platform, periodMonth, planView 
     { id: isGoogle ? "keywords" : "creative", label: isGoogle ? "Keywords" : "Creative" },
   ];
   const [level, setLevel] = useState<string>("campaign");
-  const { loading, kpis } = usePlanData(projectCode, periodMonth);
+
+  // THAY: kpis lấy từ raw table của đúng platform, không còn dùng usePlanData (vốn tính trên toàn project)
+  const { rows: channelRows, loading } = useChannelRawData(projectCode, platform);
+  const kpis = useMemo(() => channelKpis(platform, channelRows), [platform, channelRows]);
 
   const bannerClass = isGoogle ? "google" : isYoutube ? "youtube" : "meta";
   const bannerIcon = isGoogle ? <Search size={40} /> : isYoutube ? <SquarePlay size={40} /> : <Share2 size={40} />;
