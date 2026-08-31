@@ -10,6 +10,11 @@ export async function syncAllForProject(
   tabFilter?: string
 ): Promise<SyncResult[]> {
   const results: SyncResult[] = [];
+  // Cờ đánh dấu: master data (ad_daily_metrics) đã được xử lý ở nhánh dưới
+  // hay chưa. Dùng để tránh báo lỗi "không tìm thấy config" giả — vì
+  // ad_daily_metrics không nằm trong getAllRawConfigsForProject, nó luôn có
+  // matchCount = 0 dù đã sync thành công ở syncMasterDataForProject rồi.
+  let handledByMasterData = false;
 
   // Bỏ qua sync master data nếu đang lọc tab cụ thể
   if (!tabFilter && (!table || table === 'ad_daily_metrics')) {
@@ -18,6 +23,7 @@ export async function syncAllForProject(
     // vẫn luôn ghi thật (testMode bị bỏ qua hoàn toàn). Giờ truyền testMode xuống
     // đúng như các bảng khác qua syncRawSheet bên dưới.
     results.push(await syncMasterDataForProject(projectCode, spreadsheetId, undefined, testMode));
+    handledByMasterData = true;
   }
 
   const configs = await getAllRawConfigsForProject(projectCode);
@@ -25,7 +31,7 @@ export async function syncAllForProject(
 
   for (const config of configs) {
     if (table && config.table !== table) continue;
-    
+
     if (tabFilter) {
       const tabNames = Array.isArray(config.tabName) ? config.tabName : [config.tabName];
       const isMatch = tabNames.some(t => t.toLowerCase().includes(tabFilter.toLowerCase()));
@@ -36,7 +42,12 @@ export async function syncAllForProject(
     results.push(await syncRawSheet(projectCode, spreadsheetId, config, testMode));
   }
 
-  if (matchCount === 0) {
+  // 🔧 FIX #2 — chỉ báo lỗi "không tìm thấy config" khi thực sự không có
+  // nhánh nào xử lý request này. Trước đây, filter table=ad_daily_metrics sẽ
+  // LUÔN rơi vào đây (vì ad_daily_metrics không có trong raw configs), kể cả
+  // khi syncMasterDataForProject ở trên đã chạy và trả về thành công — gây
+  // ra 1 kết quả lỗi giả trong mảng results dù sync không có gì sai.
+  if (matchCount === 0 && !handledByMasterData) {
     results.push({
       projectCode,
       table: table || 'All',

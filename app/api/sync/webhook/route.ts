@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 import { findConfigForSheetTab } from '@/lib/syncConfigs';
+import { findLegacyMasterDataProject, processMasterDataRows } from '@/lib/syncMasterData';
 
 type WebhookRowNew = { row_number: number; values: unknown[] };
 
-// ===== FIX #1: ngưỡng an toàn — nếu tỷ lệ dòng bị skip trong 1 lần FULL_REPLACE
-// vượt quá mức này, TỪ CHỐI thực hiện DELETE+INSERT để tránh xóa mất data tốt
-// chỉ vì payload lần này bị lỗi/thiếu tạm thời (formula đang tính lại, header
-// alias không khớp một vài dòng, v.v.). Chỉnh số này theo mức bạn chấp nhận được.
-const FULL_REPLACE_SKIP_RATIO_THRESHOLD = 0.05; // 5%
+const FULL_REPLACE_SKIP_RATIO_THRESHOLD = 0.05;
 
 function normalizeHeader(v: unknown): string {
   return String(v ?? '').trim().toLowerCase();
 }
 
-// Xây hàm get(aliases) giống hệt cách parseRowByHeader kỳ vọng:
-// truyền vào danh sách alias (vd ['buying_type', 'buying type']), trả về giá trị đầu tiên khớp.
 function buildGetter(headers: unknown[], rowValues: unknown[]) {
   const map = new Map<string, unknown>();
   headers.forEach((h, idx) => {
@@ -37,7 +32,6 @@ function buildGetter(headers: unknown[], rowValues: unknown[]) {
   };
 }
 
-// Bóc tên cột thật ra khỏi conflictColumns, kể cả khi có COALESCE(col, '') bọc quanh
 function extractConflictColumnNames(conflictColumns: string): string[] {
   const matches = conflictColumns.match(/(?:COALESCE\(\s*)?([a-zA-Z_][a-zA-Z0-9_]*)/g) ?? [];
   return [...new Set(matches.map((m) => m.replace(/^COALESCE\(\s*/, '').trim()))]
@@ -63,13 +57,76 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Thiếu sheet_id, tab_name hoặc rows' }, { status: 400 });
   }
 
-  // ===== FIX #2 (chuẩn bị): giữ lại row_number gốc thay vì chỉ lấy values,
-  // để khi 1 dòng bị skip ta biết chính xác dòng đó nằm ở đâu trong sheet.
   const normalizedRows: { row_number: number | null; values: unknown[] }[] = rows.map((r) =>
     Array.isArray(r)
       ? { row_number: null, values: r }
       : { row_number: (r as WebhookRowNew).row_number ?? null, values: (r as WebhookRowNew).values }
   );
+
+  // ===== FIX MASTER_DATA — MASTER_DATA không nằm trong getAllRawConfigsForProject
+  // (nó dùng aggregation SUM + resolveChannelId/resolveCampaignId riêng, khác hẳn
+  // pattern RowSyncConfig của các bảng khác), nên findConfigForSheetTab luôn trả
+  // null cho tab này -> webhook cũ báo 404 dù project có bật uses_legacy_master_data.
+  // Giờ chặn sớm: nếu tab_name là MASTER_DATA VÀ sheet_id khớp đúng 1 project đang
+  // dùng layout cũ, xử lý ngay bằng processMasterDataRows (dùng chung logic với
+  // batch flow), không đi qua findConfigForSheetTab/parseRow nữa.
+  if (normalizeHeader(tab_name) === 'master_data') {
+    const legacyProject = await findLegacyMasterDataProject(sheet_id);
+    if (legacyProject) {
+      if (!headers || headers.length === 0) {
+        return NextResponse.json(
+          { error: `MASTER_DATA đọc theo header nhưng payload không có "headers"` },
+          { status: 400 }
+        );
+      }
+
+      const client = await pool.connect();
+      let batchId: number | null = null;
+      try {
+        const batchRes = await client.query(
+          `INSERT INTO ad_import_batches (project_id, source_file_name, source_sheet_name, status)
+           VALUES ($1, $2, $3, 'processing') RETURNING id`,
+          [legacyProject.projectId, sheet_id, tab_name]
+        );
+        batchId = batchRes.rows[0].id;
+
+        const dataRows = normalizedRows.map((r) => r.values);
+
+        await client.query('BEGIN');
+        const { successRows, failedRows, sampleErrors, mergedDuplicateGroups } =
+          await processMasterDataRows(client, legacyProject.projectId, legacyProject.projectCode, batchId, headers, dataRows);
+        await client.query('COMMIT');
+
+        await client.query(
+          `UPDATE ad_import_batches SET status = 'success', total_rows = $1, success_rows = $2, failed_rows = $3 WHERE id = $4`,
+          [dataRows.length, successRows, failedRows, batchId]
+        );
+
+        return NextResponse.json({
+          projectCode: legacyProject.projectCode,
+          table: 'ad_daily_metrics',
+          changeType: change_type ?? 'UPSERT',
+          fullReplace: false,
+          successRows, failedRows,
+          skippedRows: failedRows, // MASTER_DATA không phân biệt "skip" vs "failed" — thiếu field bắt buộc tính chung vào failedRows
+          totalRows: dataRows.length,
+          sampleErrors, mergedDuplicateGroups,
+        });
+      } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
+        const message = (e as Error).message;
+        if (batchId) {
+          await client.query(`UPDATE ad_import_batches SET status = 'failed', error_message = $1 WHERE id = $2`, [message, batchId]).catch(() => {});
+        }
+        return NextResponse.json({ error: message }, { status: 500 });
+      } finally {
+        client.release();
+      }
+    }
+    // Không khớp project nào dùng layout cũ -> rơi xuống nhánh chung bên dưới,
+    // sẽ trả 404 "không tìm thấy config" như trước (đúng, vì project đó không
+    // nên có tab MASTER_DATA).
+  }
 
   const match = await findConfigForSheetTab(sheet_id, tab_name);
   if (!match) {
@@ -94,10 +151,8 @@ export async function POST(request: NextRequest) {
     if (projectRes.rows.length === 0) throw new Error(`Không tìm thấy project "${projectCode}"`);
     const projectId = projectRes.rows[0].id;
 
-    // Parse toàn bộ trước, để biết được scope thật sự cần xóa (nếu có)
     const parsedRows: Record<string, any>[] = [];
     let skippedRows = 0;
-    // ===== FIX #2: lưu lại row_number của các dòng bị skip để log ra, thay vì chỉ đếm số lượng
     const skippedRowNumbers: number[] = [];
 
     for (const row of normalizedRows) {
@@ -118,10 +173,6 @@ export async function POST(request: NextRequest) {
       Array.isArray(config.deleteScopeColumns) &&
       config.deleteScopeColumns.length > 0;
 
-    // ===== FIX #1: chặn trước khi động vào DB nếu skip ratio quá cao.
-    // Chỉ áp dụng cho nhánh useFullReplace, vì đây là nhánh có DELETE —
-    // nhánh upsert thường (ON CONFLICT DO UPDATE) không xóa gì nên an toàn hơn,
-    // dù skip nhiều thì chỉ là "chưa cập nhật thêm", không mất data cũ.
     if (useFullReplace) {
       const totalConsidered = normalizedRows.length;
       const skipRatio = totalConsidered > 0 ? skippedRows / totalConsidered : 0;
@@ -133,7 +184,7 @@ export async function POST(request: NextRequest) {
             skippedRows,
             totalRows: totalConsidered,
             skipRatio: Number(skipRatio.toFixed(4)),
-            skippedRowNumbers: skippedRowNumbers.slice(0, 50), // giới hạn 50 dòng đầu để response không quá dài
+            skippedRowNumbers: skippedRowNumbers.slice(0, 50),
           },
           { status: 422 }
         );
@@ -143,7 +194,6 @@ export async function POST(request: NextRequest) {
     await client.query('BEGIN');
 
     if (useFullReplace && parsedRows.length > 0) {
-      // Chỉ xóa đúng phạm vi (VD period_month = 'YTD') — không đụng vào MTD hay tab khác dùng chung bảng
       const scopeCols = config.deleteScopeColumns!;
       const seenScopes = new Set<string>();
       for (const values of parsedRows) {
@@ -157,8 +207,6 @@ export async function POST(request: NextRequest) {
         await client.query(`DELETE FROM ${config.table} WHERE ${whereClause}`, whereVals);
       }
     }
-    // Nếu tab bị xóa sạch dữ liệu (parsedRows rỗng) thì KHÔNG xóa gì trong DB —
-    // an toàn hơn là xóa nhầm toàn bộ khi header/parse bị lỗi tạm thời.
 
     let successRows = 0;
     let failedRows = 0;
@@ -195,8 +243,6 @@ export async function POST(request: NextRequest) {
 
     await client.query('COMMIT');
 
-    // ===== FIX #2: log rõ danh sách row_number bị skip ra server log,
-    // để bạn tra ngược trong sheet xem đúng dòng nào đang thiếu channel/buying_type/...
     if (skippedRowNumbers.length > 0) {
       console.warn(
         `[SYNC SKIP] table="${config.table}" tab="${tab_name}" sheet_id="${sheet_id}": ${skippedRows} dòng bị skip, row_number = [${skippedRowNumbers.join(', ')}]`
@@ -208,7 +254,7 @@ export async function POST(request: NextRequest) {
       changeType: change_type ?? 'UPSERT',
       fullReplace: useFullReplace,
       successRows, failedRows, skippedRows, totalRows: rows.length,
-      skippedRowNumbers, // trả về luôn trong response để Apps Script log ra được nếu cần
+      skippedRowNumbers,
     });
   } catch (e) {
     await client.query('ROLLBACK');
