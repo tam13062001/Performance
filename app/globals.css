@@ -3354,3 +3354,68 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 }
+/* ---------------- Date range picker ---------------- */
+.date-range-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.date-range-arrow {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.date-range-input {
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.date-range-input:hover {
+  border-color: var(--accent);
+}
+
+.date-range-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Dark theme: border sáng màu nổi bật hơn nền tối */
+[data-ui-theme="dark"] .date-range-input {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+[data-ui-theme="dark"] .date-range-input:hover,
+[data-ui-theme="dark"] .date-range-input:focus {
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Icon lịch native — dark theme cần icon sáng màu */
+[data-ui-theme="dark"] .date-range-input::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  cursor: pointer;
+}
+
+/* Light theme: border đen rõ ràng */
+[data-ui-theme="light"] .date-range-input {
+  border: 1px solid rgba(0, 0, 0, 0.55);
+  color: #000;
+  background: #fff;
+}
+
+[data-ui-theme="light"] .date-range-input:hover,
+[data-ui-theme="light"] .date-range-input:focus {
+  border-color: #000;
+}
+
+/* Icon lịch native — light theme cần icon đen */
+[data-ui-theme="light"] .date-range-input::-webkit-calendar-picker-indicator {
+  filter: invert(0) brightness(0);
+  cursor: pointer;
+}

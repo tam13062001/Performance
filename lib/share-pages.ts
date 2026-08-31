@@ -1,5 +1,6 @@
 export const SHAREABLE_PAGES = [
   { id: 'overview', label: 'Overview' },
+  { id: 'daily', label: 'Daily trend' },
   { id: 'business', label: 'Business breakdown' },
   { id: 'audience', label: 'Audience' },
   { id: 'google', label: 'Google Ads' },

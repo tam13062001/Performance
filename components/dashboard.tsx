@@ -40,6 +40,7 @@ import {
   channelKpis,
   loadDailyMetrics,
   dailyTrend,
+  filterDailyByRange,
   type AlertRow,
   type CampaignBreakdownRow,
   type DataStatusRow,
@@ -83,6 +84,43 @@ function DateRangeTabs({ value, onChange }: { value: RangeDays; onChange: (v: Ra
   );
 }
 
+function DateRangePicker({
+  from,
+  to,
+  minDate,
+  maxDate,
+  onChangeFrom,
+  onChangeTo,
+}: {
+  from: string;
+  to: string;
+  minDate?: string;
+  maxDate?: string;
+  onChangeFrom: (v: string) => void;
+  onChangeTo: (v: string) => void;
+}) {
+  return (
+    <div className="date-range-picker">
+      <input
+        type="date"
+        className="date-range-input"
+        value={from}
+        min={minDate}
+        max={to || maxDate}
+        onChange={(e) => onChangeFrom(e.target.value)}
+      />
+      <span className="date-range-arrow">→</span>
+      <input
+        type="date"
+        className="date-range-input"
+        value={to}
+        min={from || minDate}
+        max={maxDate}
+        onChange={(e) => onChangeTo(e.target.value)}
+      />
+    </div>
+  );
+}
 /* ---------------- Daily metrics hook (ad_daily_metrics) ---------------- */
 function useDailyMetrics(projectCode: string) {
   const [rows, setRows] = useState<DailyMetricRow[]>([]);
@@ -106,32 +144,58 @@ function useDailyMetrics(projectCode: string) {
 }
 
 /* ---------------- Daily Trend Page (trang riêng) ---------------- */
+function classifyChannel(channel: string): "google" | "meta" | "other" {
+  const upper = (channel || "").toUpperCase();
+  if (["SEM", "ADX", "YOUTUBE"].includes(upper)) return "google";
+  if (["FACEBOOK", "INSTAGRAM", "TIKTOK"].includes(upper)) return "meta";
+  return "other";
+}
+
 export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   const { rows, loading, error } = useDailyMetrics(projectCode);
-  const [channelFilter, setChannelFilter] = useState<string>("all");
-  const [rangeDays, setRangeDays] = useState<RangeDays>(30);
+  const [channelFilter, setChannelFilter] = useState<"all" | "google" | "meta">("all");
 
-  const channels = useMemo(() => {
-    const set = new Set(rows.map((r) => (r.channel || "").toUpperCase()).filter(Boolean));
-    return ["all", ...[...set].sort()];
+  // chart: chọn theo số ngày gần nhất
+  const [chartRangeDays, setChartRangeDays] = useState<RangeDays>(30);
+
+  // bảng raw: chọn theo khoảng ngày cụ thể
+  const [tableFromDate, setTableFromDate] = useState<string>("");
+  const [tableToDate, setTableToDate] = useState<string>("");
+
+  const { minDate, maxDate } = useMemo(() => {
+    if (rows.length === 0) return { minDate: undefined, maxDate: undefined };
+    const dates = rows.map((r) => r.report_date).sort();
+    return { minDate: dates[0], maxDate: dates[dates.length - 1] };
   }, [rows]);
 
-  const filteredRows = useMemo(
-    () => (channelFilter === "all" ? rows : rows.filter((r) => (r.channel || "").toUpperCase() === channelFilter)),
+  useEffect(() => {
+    if (maxDate && !tableToDate) {
+      setTableToDate(maxDate);
+      const d = new Date(maxDate);
+      d.setDate(d.getDate() - 29);
+      const defaultFrom = d.toISOString().slice(0, 10);
+      setTableFromDate(minDate && defaultFrom < minDate ? minDate : defaultFrom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maxDate]);
+
+  const channelFilteredRows = useMemo(
+    () => (channelFilter === "all" ? rows : rows.filter((r) => classifyChannel(r.channel) === channelFilter)),
     [rows, channelFilter]
   );
 
-  const allPoints = useMemo(() => dailyTrend(filteredRows), [filteredRows]);
-  const points = useMemo(() => allPoints.slice(-rangeDays), [allPoints, rangeDays]);
+  // Data cho chart: N ngày gần nhất
+  const allPoints = useMemo(() => dailyTrend(channelFilteredRows), [channelFilteredRows]);
+  const points = useMemo(() => allPoints.slice(-chartRangeDays), [allPoints, chartRangeDays]);
 
-  // Bảng raw cũng lọc theo khoảng ngày đang chọn (dùng report_date của lát cắt points)
-  const visibleDates = useMemo(() => new Set(points.map((p) => p.date)), [points]);
+  // Data cho bảng raw: theo khoảng ngày cụ thể
+  const tableRows = useMemo(
+    () => filterDailyByRange(channelFilteredRows, tableFromDate || undefined, tableToDate || undefined),
+    [channelFilteredRows, tableFromDate, tableToDate]
+  );
   const sortedRawRows = useMemo(
-    () =>
-      [...filteredRows]
-        .filter((r) => visibleDates.has(r.report_date))
-        .sort((a, b) => b.report_date.localeCompare(a.report_date)),
-    [filteredRows, visibleDates]
+    () => [...tableRows].sort((a, b) => b.report_date.localeCompare(a.report_date)),
+    [tableRows]
   );
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRawRows, 10);
 
@@ -142,13 +206,16 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
     <>
       <div className="page-toolbar">
         <div className="tabs">
-          {channels.map((c) => (
-            <button key={c} type="button" className={`tab ${channelFilter === c ? "active" : ""}`} onClick={() => setChannelFilter(c)}>
-              {c === "all" ? "Tất cả kênh" : c}
-            </button>
-          ))}
+          <button type="button" className={`tab ${channelFilter === "all" ? "active" : ""}`} onClick={() => setChannelFilter("all")}>
+            Tất cả kênh
+          </button>
+          <button type="button" className={`tab ${channelFilter === "meta" ? "active" : ""}`} onClick={() => setChannelFilter("meta")}>
+            Meta
+          </button>
+          <button type="button" className={`tab ${channelFilter === "google" ? "active" : ""}`} onClick={() => setChannelFilter("google")}>
+            Google
+          </button>
         </div>
-        <DateRangeTabs value={rangeDays} onChange={setRangeDays} />
       </div>
 
       <article className="card">
@@ -157,25 +224,40 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
             <small>Xu hướng theo ngày</small>
             <h3>Impressions, CTR &amp; Frequency theo report_date</h3>
           </div>
-          <span className="chip-config">{rangeDays} ngày gần nhất</span>
+          <DateRangeTabs value={chartRangeDays} onChange={setChartRangeDays} />
         </div>
-        <div className="chart-wrap large">
-          <VolumeEfficiencyChart
-            labels={points.map((p) => p.date)}
-            impressions={points.map((p) => p.impressions)}
-            ctr={points.map((p) => Number(p.ctr.toFixed(2)))}
-            frequency={points.map((p) => Number(p.frequency.toFixed(2)))}
-          />
-        </div>
+        {points.length === 0 ? (
+          <div className="notice"><Info size={18} /><div><b>Chưa có dữ liệu cho khoảng ngày này.</b></div></div>
+        ) : (
+          <div className="chart-wrap large">
+            <VolumeEfficiencyChart
+              labels={points.map((p) => p.date)}
+              impressions={points.map((p) => p.impressions)}
+              ctr={points.map((p) => Number(p.ctr.toFixed(2)))}
+              frequency={points.map((p) => Number(p.frequency.toFixed(2)))}
+            />
+          </div>
+        )}
       </article>
 
       <article className="card">
-        <div className="card-head"><div><small>Bảng chi tiết</small><h3>Dữ liệu theo ngày (raw)</h3></div></div>
+        <div className="card-head">
+          <div><small>Bảng chi tiết</small><h3>Dữ liệu theo ngày</h3></div>
+          <DateRangePicker
+            from={tableFromDate}
+            to={tableToDate}
+            minDate={minDate}
+            maxDate={maxDate}
+            onChangeFrom={setTableFromDate}
+            onChangeTo={setTableToDate}
+          />
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Ngày</th><th>Campaign</th><th>Channel</th><th>Phase</th>
+                {/* <th>Ngày</th> */}
+                <th>Campaign</th><th>Channel</th><th>Phase</th>
                 <th className="right">Impressions</th><th className="right">Reach</th>
                 <th className="right">Clicks</th><th className="right">Engagements</th>
                 <th className="right">Spend</th><th className="right">CTR</th>
@@ -184,7 +266,7 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono">{r.report_date}</td>
+                  {/* <td className="mono">{r.report_date}</td> */}
                   <td className="mono" title={r.campaign_name}>{r.campaign_name}</td>
                   <td><PlatformChip p={r.channel} /></td>
                   <td>{r.phase}</td>
@@ -205,7 +287,6 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
     </>
   );
 }
-
 function useDbProjects() {
   const [projects, setProjects] = useState<DbProject[]>([]);
   const [loading, setLoading] = useState(true);
