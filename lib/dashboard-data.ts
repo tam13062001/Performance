@@ -975,3 +975,83 @@ export function channelKpis(platform: "Google" | "Meta" | "Youtube", rows: Chann
   if (rows.length === 0) return [];
   return platform === "Meta" ? metaChannelKpis(rows) : googleChannelKpis(rows);
 }
+
+// ---------- Daily metrics (ad_daily_metrics) ----------
+export type DailyMetricRow = {
+  id: number;
+  project_id: string;
+  channel_id: number;
+  import_batch_id: number;
+  project_code: string;
+  phase: string;
+  channel: string;
+  report_date: string; // "YYYY-MM-DD"
+  campaign_name: string;
+  buying_type: string;
+  start_date: string | null;
+  end_date: string | null;
+  region: string | null;
+  asset: string;
+  reach: number;
+  impressions: number;
+  engagements: number;
+  views: number;
+  clicks: number;
+  link_clicks: number;
+  landing_page_views: number;
+  leads: number;
+  spend: number;
+  campaign_id: string;
+};
+
+export async function loadDailyMetrics(projectCode: string): Promise<DailyMetricRow[]> {
+  return fetchTable<DailyMetricRow>("ad_daily_metrics", projectCode);
+}
+
+// Lọc theo khoảng ngày, tiện dùng khi có date picker
+export function filterDailyByRange(
+  rows: DailyMetricRow[],
+  from?: string, // "YYYY-MM-DD"
+  to?: string
+): DailyMetricRow[] {
+  return rows.filter((r) => (!from || r.report_date >= from) && (!to || r.report_date <= to));
+}
+
+export type DailyPoint = {
+  date: string;
+  impressions: number;
+  reach: number;
+  engagements: number;
+  views: number;
+  clicks: number;
+  spend: number;
+  ctr: number;
+  er: number;
+  frequency: number;
+};
+
+// Gộp tất cả campaign/channel về 1 điểm mỗi report_date
+export function dailyTrend(rows: DailyMetricRow[]): DailyPoint[] {
+  const map = new Map<string, DailyPoint>();
+  for (const r of rows) {
+    const date = r.report_date;
+    const p =
+      map.get(date) ??
+      ({ date, impressions: 0, reach: 0, engagements: 0, views: 0, clicks: 0, spend: 0, ctr: 0, er: 0, frequency: 0 } as DailyPoint);
+    p.impressions += r.impressions || 0;
+    p.reach += r.reach || 0;
+    p.engagements += r.engagements || 0;
+    p.views += r.views || 0;
+    p.clicks += r.clicks || 0;
+    p.spend += r.spend || 0;
+    map.set(date, p);
+  }
+  return [...map.values()]
+    .map((p) => ({
+      ...p,
+      ctr: ctrOf(p.impressions, p.clicks),
+      er: erOf(p.impressions, p.engagements),
+      frequency: freqOf(p.impressions, p.reach),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}

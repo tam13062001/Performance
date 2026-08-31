@@ -17,6 +17,7 @@ import {
   pct,
   vnd,
   freqOf,
+  ctrOf,
   monthlyTrend as loadMonthlyTrend,
   loadExecutionRows,
   loadDeliveryStatus,
@@ -35,8 +36,10 @@ import {
   aggregateDemographic,
   aggregateDemographicByCampaignDetail,
   deliveryAlertGroups,
-  loadChannelRawData, 
+  loadChannelRawData,
   channelKpis,
+  loadDailyMetrics,
+  dailyTrend,
   type AlertRow,
   type CampaignBreakdownRow,
   type DataStatusRow,
@@ -46,6 +49,7 @@ import {
   type BusinessDimension,
   type Verdict,
   type DemographicRow,
+  type DailyMetricRow,
 } from "@/lib/dashboard-data";
 
 // project_code thật trong DB
@@ -56,6 +60,149 @@ function AlertLine({ row }: { row: AlertRow }) {
     <p className="alert-line">
       {row.region} - {row.channel} - {row.buyingType} - {row.asset} - {row.statusLabel}
     </p>
+  );
+}
+
+type RangeDays = 7 | 14 | 30 | 90;
+
+function DateRangeTabs({ value, onChange }: { value: RangeDays; onChange: (v: RangeDays) => void }) {
+  const options: RangeDays[] = [7, 14, 30, 90];
+  return (
+    <div className="tabs" style={{ gap: 4 }}>
+      {options.map((d) => (
+        <button
+          key={d}
+          type="button"
+          className={`tab ${value === d ? "active" : ""}`}
+          onClick={() => onChange(d)}
+        >
+          {d} ngày
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- Daily metrics hook (ad_daily_metrics) ---------------- */
+function useDailyMetrics(projectCode: string) {
+  const [rows, setRows] = useState<DailyMetricRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    loadDailyMetrics(projectCode)
+      .then((r) => !cancelled && setRows(r))
+      .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode]);
+
+  return { rows, loading, error };
+}
+
+/* ---------------- Daily Trend Page (trang riêng) ---------------- */
+export function DailyTrendPage({ projectCode }: { projectCode: string }) {
+  const { rows, loading, error } = useDailyMetrics(projectCode);
+  const [channelFilter, setChannelFilter] = useState<string>("all");
+  const [rangeDays, setRangeDays] = useState<RangeDays>(30);
+
+  const channels = useMemo(() => {
+    const set = new Set(rows.map((r) => (r.channel || "").toUpperCase()).filter(Boolean));
+    return ["all", ...[...set].sort()];
+  }, [rows]);
+
+  const filteredRows = useMemo(
+    () => (channelFilter === "all" ? rows : rows.filter((r) => (r.channel || "").toUpperCase() === channelFilter)),
+    [rows, channelFilter]
+  );
+
+  const allPoints = useMemo(() => dailyTrend(filteredRows), [filteredRows]);
+  const points = useMemo(() => allPoints.slice(-rangeDays), [allPoints, rangeDays]);
+
+  // Bảng raw cũng lọc theo khoảng ngày đang chọn (dùng report_date của lát cắt points)
+  const visibleDates = useMemo(() => new Set(points.map((p) => p.date)), [points]);
+  const sortedRawRows = useMemo(
+    () =>
+      [...filteredRows]
+        .filter((r) => visibleDates.has(r.report_date))
+        .sort((a, b) => b.report_date.localeCompare(a.report_date)),
+    [filteredRows, visibleDates]
+  );
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRawRows, 10);
+
+  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
+  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+
+  return (
+    <>
+      <div className="page-toolbar">
+        <div className="tabs">
+          {channels.map((c) => (
+            <button key={c} type="button" className={`tab ${channelFilter === c ? "active" : ""}`} onClick={() => setChannelFilter(c)}>
+              {c === "all" ? "Tất cả kênh" : c}
+            </button>
+          ))}
+        </div>
+        <DateRangeTabs value={rangeDays} onChange={setRangeDays} />
+      </div>
+
+      <article className="card">
+        <div className="card-head">
+          <div>
+            <small>Xu hướng theo ngày</small>
+            <h3>Impressions, CTR &amp; Frequency theo report_date</h3>
+          </div>
+          <span className="chip-config">{rangeDays} ngày gần nhất</span>
+        </div>
+        <div className="chart-wrap large">
+          <VolumeEfficiencyChart
+            labels={points.map((p) => p.date)}
+            impressions={points.map((p) => p.impressions)}
+            ctr={points.map((p) => Number(p.ctr.toFixed(2)))}
+            frequency={points.map((p) => Number(p.frequency.toFixed(2)))}
+          />
+        </div>
+      </article>
+
+      <article className="card">
+        <div className="card-head"><div><small>Bảng chi tiết</small><h3>Dữ liệu theo ngày (raw)</h3></div></div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ngày</th><th>Campaign</th><th>Channel</th><th>Phase</th>
+                <th className="right">Impressions</th><th className="right">Reach</th>
+                <th className="right">Clicks</th><th className="right">Engagements</th>
+                <th className="right">Spend</th><th className="right">CTR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono">{r.report_date}</td>
+                  <td className="mono" title={r.campaign_name}>{r.campaign_name}</td>
+                  <td><PlatformChip p={r.channel} /></td>
+                  <td>{r.phase}</td>
+                  <td className="right">{num(r.impressions)}</td>
+                  <td className="right">{num(r.reach)}</td>
+                  <td className="right">{num(r.clicks)}</td>
+                  <td className="right">{num(r.engagements)}</td>
+                  <td className="right">{vnd(r.spend)}</td>
+                  <td className="right">{pct(ctrOf(r.impressions, r.clicks))}</td>
+                </tr>
+              ))}
+              {pagedRows.length === 0 && <tr><td colSpan={10}>Chưa có data.</td></tr>}
+            </tbody>
+          </table>
+          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+        </div>
+      </article>
+    </>
   );
 }
 
@@ -259,17 +406,6 @@ function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessB
           frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))}
         />
       </div>
-      {/* <ChartInsights
-        spec={{
-          title: "Impressions, CTR & Frequency theo Phase",
-          subject: "volume & efficiency theo phase",
-          labels: bizRows.map((b) => b.label),
-          volume: bizRows.map((b) => b.impressions),
-          volumeLabel: "Impressions",
-          ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))),
-          frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))),
-        }}
-      /> */}
     </article>
   );
 }
@@ -354,18 +490,6 @@ function MonthlyTrendCard({ projectCode, scope }: { projectCode: string; scope: 
           frequency={series.map((m) => Number(m.frequency.toFixed(2)))}
         />
       </div>
-      {/* <ChartInsights
-        spec={{
-          title: "Volume & efficiency theo tháng",
-          subject: `xu hướng theo tháng · ${scope}`,
-          labels: series.map((m) => m.month),
-          volume: series.map((m) => m.impressions),
-          volumeLabel: "Impressions",
-          ctr: series.map((m) => Number(m.ctr.toFixed(2))),
-          frequency: series.map((m) => Number(m.frequency.toFixed(2))),
-          spend: series.map((m) => m.spend),
-        }}
-      /> */}
     </article>
   );
 }
@@ -375,17 +499,17 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
   const { loading, error, kpis, signals, score, campaignRows, data } = usePlanData(projectCode, periodMonth);
   const alertGroups = useMemo(() => deliveryAlertGroups(data), [data]);
 
-  // THAY: 3 chart theo Phase (Volume Delivery, Efficiency Trend, Volume & Efficiency)
-  // giờ dùng data từ ad_raw_data (data status) thay vì report từ ad_raw_report,
-  // vì ad_raw_data có dữ liệu đầy đủ/chính xác hơn cho phase Conversion.
   const bizRows = useMemo(() => businessBreakdown("phase", data), [data]);
+
+  // Daily trend từ ad_daily_metrics
+  const { rows: dailyRows, loading: dailyLoading } = useDailyMetrics(projectCode);
+  const dailyPoints = useMemo(() => dailyTrend(dailyRows), [dailyRows]);
 
   const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
 
-  // Breakdown theo TỪNG channel thật (không nhị phân Google/Meta nữa) — số lát bánh tự co giãn theo data
   const channelSlices: ChannelSlice[] = Object.entries(
     data.reduce<Record<string, number>>((acc, r) => {
       const key = (r.channel || "Chưa map").trim().toUpperCase();
@@ -397,6 +521,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({ label, value }));
   const isAllClear = alertGroups.laggingDelivery.length === 0 && alertGroups.overCost.length === 0;
+
   return (
     <>
       <div className="hero">
@@ -422,7 +547,6 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <VolumeBarChart labels={bizRows.map((b) => b.label)} impressions={bizRows.map((b) => b.impressions)} reach={bizRows.map((b) => b.reach)} />
           </div>
-          {/* <ChartInsights spec={{ title: "Impressions theo Phase", subject: "volume delivery theo phase", labels: bizRows.map((b) => b.label), volume: bizRows.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
 
         <article className="card">
@@ -433,10 +557,36 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <RateLineChart labels={bizRows.map((b) => b.label)} ctr={bizRows.map((b) => Number(b.ctr.toFixed(2)))} frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))} />
           </div>
-          {/* <ChartInsights spec={{ title: "CTR & Frequency theo Phase", subject: "hiệu suất theo phase", labels: bizRows.map((b) => b.label), ctr: bizRows.map((b) => Number(b.ctr.toFixed(2))), frequency: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))) }} /> */}
         </article>
       </div>
+
       <PhaseEfficiencyCard bizRows={bizRows} />
+
+      {/* Daily trend (ad_daily_metrics) */}
+      {/* <article className="card">
+        <div className="card-head">
+          <div>
+            <small>Xu hướng theo ngày</small>
+            <h3>Impressions, CTR &amp; Frequency theo report_date</h3>
+          </div>
+          <span className="chip-config">ad_daily_metrics</span>
+        </div>
+        {dailyLoading ? (
+          <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu daily…</b></div></div>
+        ) : dailyPoints.length === 0 ? (
+          <div className="notice"><Info size={18} /><div><b>Chưa có dữ liệu daily.</b></div></div>
+        ) : (
+          <div className="chart-wrap large">
+            <VolumeEfficiencyChart
+              labels={dailyPoints.map((p) => p.date)}
+              impressions={dailyPoints.map((p) => p.impressions)}
+              ctr={dailyPoints.map((p) => Number(p.ctr.toFixed(2)))}
+              frequency={dailyPoints.map((p) => Number(p.frequency.toFixed(2)))}
+            />
+          </div>
+        )}
+      </article> */}
+
       <div className="grid-2">
         <article className="card">
           <div className="card-head">
@@ -457,37 +607,35 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="card-head">
             <div><small>PERFORMANCE SIGNALS</small></div>
           </div>
-<div className="alerts">
-  
+          <div className="alerts">
+            {isAllClear ? (
+              <div className="alert-empty-all" style={{ marginTop: '10px' }}>
+                <strong>Hoạt động ổn định</strong>
+                <p>✓ Không có tín hiệu bất thường</p>
+                <p>Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
+              </div>
+            ) : (
+              <>
+                <div className="alert-group">
+                  <strong>1. Chậm spending/ delivery</strong>
+                  {alertGroups.laggingDelivery.length === 0 ? (
+                    <p className="alert-empty">Hoạt động ổn định</p>
+                  ) : (
+                    alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
+                  )}
+                </div>
 
-  {isAllClear ? (
-    <div className="alert-empty-all" style={{ marginTop: '10px' }}>
-      <strong>Hoạt động ổn định</strong>
-      <p>✓ Không có tín hiệu bất thường</p>
-      <p>Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
-    </div>
-  ) : (
-    <>
-      <div className="alert-group">
-        <strong>1. Chậm spending/ delivery</strong>
-        {alertGroups.laggingDelivery.length === 0 ? (
-          <p className="alert-empty">Hoạt động ổn định</p>
-        ) : (
-          alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
-        )}
-      </div>
-
-      <div className="alert-group">
-        <strong>2. Chi phí vượt ngưỡng</strong>
-        {alertGroups.overCost.length === 0 ? (
-          <p className="alert-empty">✓ Không có tín hiệu bất thường</p>
-        ) : (
-          alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
-        )}
-      </div>
-    </>
-  )}
-</div>
+                <div className="alert-group">
+                  <strong>2. Chi phí vượt ngưỡng</strong>
+                  {alertGroups.overCost.length === 0 ? (
+                    <p className="alert-empty">✓ Không có tín hiệu bất thường</p>
+                  ) : (
+                    alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </article>
       </div>
 
@@ -499,7 +647,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
               <tr>
                 <th>Campaign</th><th>Buying type</th>
                 <th className="right">Impressions</th><th className="right">Reach</th><th className="right">Views</th><th className="right">Clicks</th><th className="right">Engagement</th><th className="right">CTR</th><th className="right">ER</th><th>Status</th>
-              </tr> 
+              </tr>
             </thead>
             <tbody>
               {pagedCampaignRows.map((r) => (
@@ -572,17 +720,6 @@ export function BusinessPage({ projectCode, periodMonth, planView }: { projectCo
             frequency={rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2)))}
           />
         </div>
-        {/* <ChartInsights
-          spec={{
-            title: `Impressions, CTR & Frequency theo ${label}`,
-            subject: `volume & efficiency theo ${label?.toLowerCase()}`,
-            labels: rows.map((r) => r.label),
-            volume: rows.map((r) => r.impressions),
-            volumeLabel: "Impressions",
-            ctr: rows.map((r) => Number(r.ctr.toFixed(2))),
-            frequency: rows.map((r) => Number(freqOf(r.impressions, r.reach).toFixed(2))),
-          }}
-        /> */}
       </article>
 
       {planView === "YTD" && <MonthlyTrendCard projectCode={projectCode} scope="Toàn bộ channel" />}
@@ -672,11 +809,8 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
               labels={rows.map((r) => r.name)}
               impressions={rows.map((r) => r.impressions)}
               reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined}
-              
             />
           </div>
-          {/* LƯU Ý: ChartInsights vẫn nhận full tên (r.name) để AI đọc được chính xác dữ liệu */}
-          {/* <ChartInsights spec={{ title: `Impressions${showReach ? " & Reach" : ""} · ${platform}`, subject: `volume theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), volume: rows.map((r) => r.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
 
         <article className="card mt-2">
@@ -685,10 +819,8 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
             <RateLineChart
               labels={rows.map((r) => r.name)}
               ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
-              
             />
           </div>
-          {/* <ChartInsights spec={{ title: `CTR · ${platform}`, subject: `hiệu suất CTR theo ${level === "campaign" ? "campaign" : "ad group"} trên ${platform}`, labels: rows.map((r) => r.name), ctr: rows.map((r) => Number(r.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 
@@ -730,7 +862,6 @@ export function ChannelDashboard({ projectCode, platform, periodMonth, planView 
   ];
   const [level, setLevel] = useState<string>("campaign");
 
-  // THAY: kpis lấy từ raw table của đúng platform, không còn dùng usePlanData (vốn tính trên toàn project)
   const { rows: channelRows, loading } = useChannelRawData(projectCode, platform);
   const kpis = useMemo(() => channelKpis(platform, channelRows), [platform, channelRows]);
 
@@ -811,7 +942,6 @@ function PlatformAudienceSection({
     };
   }, [projectCode, periodMonth, dim, platformKey]);
 
-
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
   const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
 
@@ -844,14 +974,12 @@ function PlatformAudienceSection({
           <div className="chart-wrap large">
             <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
           </div>
-          {/* <ChartInsights spec={{ title: `Impressions theo ${label} · ${platform}`, subject: `audience theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
         <article className="card">
           <div className="card-head"><div><small>Rate</small><h3>CTR theo {label} · {platform}</h3></div></div>
           <div className="chart-wrap large">
             <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
           </div>
-          {/* <ChartInsights spec={{ title: `CTR theo ${label} · ${platform}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()} trên ${platform}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 
@@ -965,7 +1093,6 @@ function KeywordsSection({ projectCode }: { projectCode: string }) {
         <div className="chart-wrap large">
           <VolumeBarChart labels={breakdown.slice(0, 15).map((b) => b.label)} impressions={breakdown.slice(0, 15).map((b) => b.impressions)} />
         </div>
-        {/* <ChartInsights spec={{ title: "Top keyword theo Clicks", subject: "hiệu suất search term", labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
       </article>
 
       <article className="card">
@@ -1069,14 +1196,12 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
           <div className="chart-wrap large">
             <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
           </div>
-          {/* <ChartInsights spec={{ title: `Impressions theo ${label}`, subject: `audience theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), volume: breakdown.map((b) => b.impressions), volumeLabel: "Impressions" }} /> */}
         </article>
         <article className="card">
           <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
           <div className="chart-wrap large">
             <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
           </div>
-          {/* <ChartInsights spec={{ title: `CTR theo ${label}`, subject: `hiệu suất CTR theo ${label?.toLowerCase()}`, labels: breakdown.map((b) => b.label), ctr: breakdown.map((b) => Number(b.ctr.toFixed(2))) }} /> */}
         </article>
       </div>
 
@@ -1338,6 +1463,7 @@ export function Dashboard() {
           {page === "projects" && (
             <ProjectsPage projects={projects} activeId={activeId} onSelect={setActiveId} onCreate={addProject} onEdit={editProject} onDelete={removeProject} />
           )}
+          {page === "daily" && dbProjectCode && <DailyTrendPage projectCode={dbProjectCode} />}
           {page === "overview" && periodMonth && dbProjectCode && <OverviewPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
           {page === "business" && periodMonth && dbProjectCode && <BusinessPage projectCode={dbProjectCode} periodMonth={periodMonth} planView={planView} />}
           {page === "audience" && dbProjectCode && periodMonth && <AudiencePage projectCode={dbProjectCode} periodMonth={periodMonth} />}

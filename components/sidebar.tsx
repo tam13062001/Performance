@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  CalendarDays,
   FileText,
   FileUp,
   FolderKanban,
@@ -17,16 +18,17 @@ import {
 import type { Project } from "@/lib/projects"
 
 export type PageId =
-  | "projects"
   | "overview"
+  | "daily"
   | "business"
   | "audience"
   | "google"
   | "meta"
   | "youtube"
   | "taxonomy"
-  | "reports"
+  | "projects"
   | "import"
+  | "reports";
 
 type NavItem = { id: PageId; label: string; title: string; desc: string; Icon: typeof LayoutDashboard }
 
@@ -36,6 +38,7 @@ const workspace: NavItem[] = [
 
 const campaign: NavItem[] = [
   { id: "overview", label: "Campaign Overview", title: "Campaign Overview", desc: "Tổng quan hiệu suất của toàn chiến dịch trên tất cả kênh.", Icon: LayoutDashboard },
+  { id: "daily", label: "Daily Trend", title: "Daily Trend", desc: "Xu hướng hiệu suất theo từng ngày (ad_daily_metrics).", Icon: CalendarDays },
   { id: "business", label: "Business Breakdown", title: "Business Breakdown", desc: "Hiệu suất theo Phase, Objective, Location, Audience, Buying Type.", Icon: Store },
   { id: "audience", label: "Audience Overview", title: "Cross-channel Audience", desc: "Phân bổ Age, Gender, Location kèm breakdown từng kênh.", Icon: Users },
 ]
