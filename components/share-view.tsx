@@ -9,6 +9,7 @@ import {
   ChannelDashboard,
   PlanPage,
   useAvailableMonths,
+  DailyTrendPage,
 } from "./dashboard";
 import { SHAREABLE_PAGES, type SharePageId } from "@/lib/share-pages";
 import { applyProjectTheme, ClientThemeContext, DEFAULT_THEME } from "@/lib/theme";
@@ -257,6 +258,7 @@ export function ShareView({ slug }: { slug: string }) {
           {activePage === "google" && <ChannelDashboard projectCode={projectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
           {activePage === "meta" && <ChannelDashboard projectCode={projectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
           {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
+          {activePage === "daily" && <DailyTrendPage projectCode={projectCode} />}
         </section>
       </main>
     </ClientThemeContext.Provider>
