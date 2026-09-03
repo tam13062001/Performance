@@ -3554,3 +3554,8 @@ tbody tr:hover {
 .table-wrap::-webkit-scrollbar-thumb:hover {
   background: #4f658c;
 }
+.sync-note {
+  padding-top: 20px;
+  text-align: center;
+  color: gray;
+}

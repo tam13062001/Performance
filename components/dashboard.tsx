@@ -154,9 +154,42 @@ function classifyChannel(channel: string): "google" | "meta" | "other" {
 
 type SortMetric = "impressions" | "reach" | "clicks" | "engagements" | "spend" | "ctr";
 
+export function useSyncInfo(projectCode: string) {
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${projectCode}/sync-info`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setLastSyncedAt(data.lastSyncedAt ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setLastSyncedAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode]);
+
+  return { lastSyncedAt };
+}
+
+export function formatDateTimeVN(iso: string): string {
+  return new Date(iso).toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   const { rows, loading, error } = useDailyMetrics(projectCode);
   const [channelFilter, setChannelFilter] = useState<"all" | "google" | "meta">("all");
+  const { lastSyncedAt } = useSyncInfo(projectCode);
+
 
   // sort bảng chi tiết: theo channel trước, rồi theo metric đã chọn
   const [sortMetric, setSortMetric] = useState<SortMetric>("impressions");
@@ -322,6 +355,11 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
             </tbody>
           </table>
           <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+                    {lastSyncedAt && (
+            <p className="sync-note">
+              Lần đồng bộ gần nhất: {formatDateTimeVN(lastSyncedAt)}
+            </p>
+          )}
         </div>
       </article>
     </>
