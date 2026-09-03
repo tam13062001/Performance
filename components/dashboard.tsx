@@ -144,6 +144,7 @@ function useDailyMetrics(projectCode: string) {
 }
 
 /* ---------------- Daily Trend Page (trang riêng) ---------------- */
+
 function classifyChannel(channel: string): "google" | "meta" | "other" {
   const upper = (channel || "").toUpperCase();
   if (["SEM", "ADX", "YOUTUBE"].includes(upper)) return "google";
@@ -188,16 +189,21 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   const allPoints = useMemo(() => dailyTrend(channelFilteredRows), [channelFilteredRows]);
   const points = useMemo(() => allPoints.slice(-chartRangeDays), [allPoints, chartRangeDays]);
 
-  // Data cho bảng raw: theo khoảng ngày cụ thể
+  // Data cho bảng: theo khoảng ngày cụ thể
   const tableRows = useMemo(
     () => filterDailyByRange(channelFilteredRows, tableFromDate || undefined, tableToDate || undefined),
     [channelFilteredRows, tableFromDate, tableToDate]
   );
-  const sortedRawRows = useMemo(
-    () => [...tableRows].sort((a, b) => b.report_date.localeCompare(a.report_date)),
-    [tableRows]
+
+  // Gộp theo campaign trong khoảng ngày đã chọn, tránh liệt kê raw rows gây confuse
+  // (nhiều dòng cùng campaign nhưng khác report_date bị ẩn cột ngày -> nhìn như duplicate)
+  const aggregatedRows = useMemo(() => aggregateByCampaign(tableRows), [tableRows]);
+
+  const sortedRows = useMemo(
+    () => [...aggregatedRows].sort((a, b) => b.impressions - a.impressions),
+    [aggregatedRows]
   );
-  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRawRows, 10);
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRows, 10);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
@@ -242,7 +248,15 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
 
       <article className="card">
         <div className="card-head">
-          <div><small>Bảng chi tiết</small><h3>Dữ liệu theo ngày</h3></div>
+          <div>
+            <small>Bảng chi tiết</small>
+            <h3>Dữ liệu theo campaign</h3>
+            {tableFromDate && tableToDate && (
+              <p className="range-note">
+                Tổng từ {formatDateVN(tableFromDate)} đến {formatDateVN(tableToDate)}
+              </p>
+            )}
+          </div>
           <DateRangePicker
             from={tableFromDate}
             to={tableToDate}
@@ -256,7 +270,6 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
           <table>
             <thead>
               <tr>
-                {/* <th>Ngày</th> */}
                 <th>Campaign</th><th>Channel</th><th>Phase</th>
                 <th className="right">Impressions</th><th className="right">Reach</th>
                 <th className="right">Clicks</th><th className="right">Engagements</th>
@@ -266,19 +279,20 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.id}>
-                  {/* <td className="mono">{r.report_date}</td> */}
                   <td className="mono" title={r.campaign_name}>{r.campaign_name}</td>
                   <td><PlatformChip p={r.channel} /></td>
                   <td>{r.phase}</td>
                   <td className="right">{num(r.impressions)}</td>
-                  <td className="right">{num(r.reach)}</td>
+                  <td className="right" title="Tổng cộng dồn theo ngày, có thể trùng user giữa các ngày">
+                    {num(r.reach)}
+                  </td>
                   <td className="right">{num(r.clicks)}</td>
                   <td className="right">{num(r.engagements)}</td>
                   <td className="right">{vnd(r.spend)}</td>
                   <td className="right">{pct(ctrOf(r.impressions, r.clicks))}</td>
                 </tr>
               ))}
-              {pagedRows.length === 0 && <tr><td colSpan={10}>Chưa có data.</td></tr>}
+              {pagedRows.length === 0 && <tr><td colSpan={9}>Chưa có data.</td></tr>}
             </tbody>
           </table>
           <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
@@ -286,6 +300,63 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
       </article>
     </>
   );
+}
+
+/**
+ * Gộp các row raw (1 row = 1 campaign/1 report_date) thành 1 row/campaign,
+ * cộng dồn các metric trong khoảng ngày đã filter.
+ *
+ * Lưu ý: `reach` là unique users nên cộng dồn nhiều ngày sẽ overcounting
+ * (1 user xem nhiều ngày bị đếm nhiều lần). Nếu cần reach chính xác theo
+ * range, phải tính từ nguồn dữ liệu hỗ trợ dedup theo user, không thể suy
+ * ra từ việc sum các daily reach.
+ */
+function aggregateByCampaign(rows: DailyMetricRow[]) {
+  const map = new Map<string, {
+    id: string;
+    campaign_name: string;
+    channel: string;
+    phase: string;
+    impressions: number;
+    reach: number;
+    clicks: number;
+    engagements: number;
+    spend: number;
+  }>();
+
+  for (const r of rows) {
+    // Nếu 1 campaign có thể chạy đồng thời nhiều channel, đổi key thành
+    // `${r.campaign_name}__${r.channel}` để không gộp nhầm giữa các kênh.
+    const key = r.campaign_name;
+    const existing = map.get(key);
+
+    if (existing) {
+      existing.impressions += r.impressions;
+      existing.reach += r.reach;
+      existing.clicks += r.clicks;
+      existing.engagements += r.engagements;
+      existing.spend += r.spend;
+    } else {
+      map.set(key, {
+        id: key,
+        campaign_name: r.campaign_name,
+        channel: r.channel,
+        phase: r.phase,
+        impressions: r.impressions,
+        reach: r.reach,
+        clicks: r.clicks,
+        engagements: r.engagements,
+        spend: r.spend,
+      });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+function formatDateVN(isoDate: string) {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
 }
 function useDbProjects() {
   const [projects, setProjects] = useState<DbProject[]>([]);
