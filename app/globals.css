@@ -3420,12 +3420,21 @@ tbody tr:hover {
   cursor: pointer;
 }
 
-/* Khối điều khiển bảng: dropdown sort + date range picker */
+/* Khối điều khiển bảng: dropdown sort + date range picker.
+   Cả 2 dùng chung 1 style (--control-*) để đồng bộ layout, không cái nào
+   nổi bật/khác tông hơn cái nào. */
 .table-controls {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+  --control-bg: #ffffff;
+  --control-border: #d8dde6;
+  --control-border-hover: #9aa5b8;
+  --control-text: #1a1f2b;
+  --control-text-muted: #6b7280;
+  --control-radius: 6px;
+  --control-height: 34px;
 }
 
 /* Dropdown "Sắp xếp theo" */
@@ -3434,7 +3443,7 @@ tbody tr:hover {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #9aa5b1; /* label mờ hơn value, đổi theo biến text-secondary hiện có nếu có */
+  color: var(--control-text-muted);
   white-space: nowrap;
 }
 
@@ -3444,28 +3453,25 @@ tbody tr:hover {
 
 .sort-select select {
   appearance: none;
-  background: #1b2431; /* đổi theo --surface / --card-bg hiện có */
-  border: 1px solid #2e3a4a; /* đổi theo --border hiện có */
-  border-radius: 8px;
-  color: #e6e9ee;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  height: var(--control-height);
+  box-sizing: border-box;
+  color: var(--control-text);
   font-size: 13px;
   font-weight: 500;
-  padding: 8px 32px 8px 12px;
+  padding: 0 32px 0 12px;
   min-width: 140px;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239aa5b1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   transition: border-color 0.15s ease;
 }
 
-.sort-select select:hover,
-.sort-select select:focus-visible {
-  border-color: #4fd1c5; /* đổi theo accent teal hiện có */
-  outline: none;
-}
-
-/* Date range picker — thêm khoảng cách giữa 2 input và icon, tránh dính chữ */
+/* Date range picker — cùng chiều cao, border, radius với select ở trên
+   để 2 control nhìn đồng bộ, chỉ khác nội dung bên trong. */
 .date-range-picker {
   display: flex;
   align-items: center;
@@ -3474,14 +3480,37 @@ tbody tr:hover {
 
 .date-range-picker input,
 .date-range-picker .date-input {
-  padding: 8px 36px 8px 14px; /* chừa chỗ cho icon lịch bên phải */
-  border-radius: 8px;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius);
+  height: var(--control-height);
+  box-sizing: border-box;
+  color: var(--control-text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 12px;
   min-width: 120px;
+  transition: border-color 0.15s ease;
+}
+
+/* Icon lịch mặc định của <input type="date"> trong Chrome/Edge — giữ màu
+   gốc (tối), đã đủ rõ trên nền trắng nên không cần invert như bản nền tối. */
+.date-range-picker input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
 }
 
 .date-range-picker .date-range-separator {
-  color: #9aa5b1;
+  color: var(--control-text-muted);
   flex-shrink: 0;
+}
+
+/* Trạng thái hover/focus dùng chung cho cả select và date input */
+.sort-select select:hover,
+.sort-select select:focus-visible,
+.date-range-picker input:hover,
+.date-range-picker input:focus-visible {
+  border-color: var(--control-border-hover);
+  outline: none;
 }
 
 /* Mobile: xuống hàng cho dễ bấm, không bị ép dính nhau */
@@ -3495,4 +3524,33 @@ tbody tr:hover {
     width: 100%;
     justify-content: space-between;
   }
+}
+
+/* --- Bảng chi tiết: thanh cuộn ngang --- */
+/* Mặc định browser vẽ scrollbar đen/xám đậm không hợp tông dashboard tối.
+   Làm scrollbar mỏng, màu sáng nhẹ, chỉ đủ nổi bật để nhận biết chứ không
+   chiếm hình. Không ẩn hẳn để vẫn còn dấu hiệu bảng cuộn được sang phải. */
+.table-wrap {
+  overflow-x: auto;
+
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: #3a4c6d transparent;
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: #3a4c6d; /* xám-xanh sáng vừa, cùng tông --control-border-hover ở trên */
+  border-radius: 999px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #4f658c;
 }

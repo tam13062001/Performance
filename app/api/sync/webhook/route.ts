@@ -53,6 +53,14 @@ export async function POST(request: NextRequest) {
     change_type?: 'INSERT' | 'UPSERT' | 'FULL_REPLACE';
   };
 
+  // TEMP DEBUG — xoá sau khi xác định xong nguyên nhân
+  console.log('[WEBHOOK DEBUG]', {
+    sheet_id_received: sheet_id,
+    tab_name_received: tab_name,
+    tab_name_normalized: normalizeHeader(tab_name),
+    rows_count: rows?.length,
+  });
+
   if (!sheet_id || !tab_name || !rows || rows.length === 0) {
     return NextResponse.json({ error: 'Thiếu sheet_id, tab_name hoặc rows' }, { status: 400 });
   }
@@ -95,6 +103,10 @@ export async function POST(request: NextRequest) {
         await client.query('BEGIN');
         const { successRows, failedRows, sampleErrors, mergedDuplicateGroups } =
           await processMasterDataRows(client, legacyProject.projectId, legacyProject.projectCode, batchId, headers, dataRows);
+        await client.query(
+          `UPDATE ad_projects SET last_synced_at = NOW() WHERE id = $1`,
+          [legacyProject.projectId]
+        );
         await client.query('COMMIT');
 
         await client.query(
