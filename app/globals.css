@@ -3419,3 +3419,80 @@ tbody tr:hover {
   filter: invert(0) brightness(0);
   cursor: pointer;
 }
+
+/* Khối điều khiển bảng: dropdown sort + date range picker */
+.table-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Dropdown "Sắp xếp theo" */
+.sort-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #9aa5b1; /* label mờ hơn value, đổi theo biến text-secondary hiện có nếu có */
+  white-space: nowrap;
+}
+
+.sort-select-label {
+  flex-shrink: 0;
+}
+
+.sort-select select {
+  appearance: none;
+  background: #1b2431; /* đổi theo --surface / --card-bg hiện có */
+  border: 1px solid #2e3a4a; /* đổi theo --border hiện có */
+  border-radius: 8px;
+  color: #e6e9ee;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 32px 8px 12px;
+  min-width: 140px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239aa5b1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  transition: border-color 0.15s ease;
+}
+
+.sort-select select:hover,
+.sort-select select:focus-visible {
+  border-color: #4fd1c5; /* đổi theo accent teal hiện có */
+  outline: none;
+}
+
+/* Date range picker — thêm khoảng cách giữa 2 input và icon, tránh dính chữ */
+.date-range-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.date-range-picker input,
+.date-range-picker .date-input {
+  padding: 8px 36px 8px 14px; /* chừa chỗ cho icon lịch bên phải */
+  border-radius: 8px;
+  min-width: 120px;
+}
+
+.date-range-picker .date-range-separator {
+  color: #9aa5b1;
+  flex-shrink: 0;
+}
+
+/* Mobile: xuống hàng cho dễ bấm, không bị ép dính nhau */
+@media (max-width: 640px) {
+  .table-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .sort-select,
+  .date-range-picker {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

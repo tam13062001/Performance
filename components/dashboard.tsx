@@ -152,9 +152,14 @@ function classifyChannel(channel: string): "google" | "meta" | "other" {
   return "other";
 }
 
+type SortMetric = "impressions" | "reach" | "clicks" | "engagements" | "spend" | "ctr";
+
 export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   const { rows, loading, error } = useDailyMetrics(projectCode);
   const [channelFilter, setChannelFilter] = useState<"all" | "google" | "meta">("all");
+
+  // sort bảng chi tiết: theo channel trước, rồi theo metric đã chọn
+  const [sortMetric, setSortMetric] = useState<SortMetric>("impressions");
 
   // chart: chọn theo số ngày gần nhất
   const [chartRangeDays, setChartRangeDays] = useState<RangeDays>(30);
@@ -200,10 +205,18 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   const aggregatedRows = useMemo(() => aggregateByCampaign(tableRows), [tableRows]);
 
   const sortedRows = useMemo(
-    () => [...aggregatedRows].sort((a, b) => b.impressions - a.impressions),
-    [aggregatedRows]
+    () =>
+      [...aggregatedRows].sort((a, b) => {
+        const channelCompare = a.channel.localeCompare(b.channel);
+        if (channelCompare !== 0) return channelCompare;
+        if (sortMetric === "ctr") {
+          return ctrOf(b.impressions, b.clicks) - ctrOf(a.impressions, a.clicks);
+        }
+        return b[sortMetric] - a[sortMetric];
+      }),
+    [aggregatedRows, sortMetric]
   );
-  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRows, 10);
+  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRows, 20);
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
@@ -257,20 +270,33 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
               </p>
             )}
           </div>
-          <DateRangePicker
-            from={tableFromDate}
-            to={tableToDate}
-            minDate={minDate}
-            maxDate={maxDate}
-            onChangeFrom={setTableFromDate}
-            onChangeTo={setTableToDate}
-          />
+          <div className="table-controls">
+            <label className="sort-select">
+              <span className="sort-select-label">Sắp xếp theo</span>
+              <select value={sortMetric} onChange={(e) => setSortMetric(e.target.value as SortMetric)}>
+                <option value="impressions">Impressions</option>
+                <option value="reach">Reach</option>
+                <option value="clicks">Clicks</option>
+                <option value="engagements">Engagements</option>
+                <option value="spend">Spend</option>
+                <option value="ctr">CTR</option>
+              </select>
+            </label>
+            <DateRangePicker
+              from={tableFromDate}
+              to={tableToDate}
+              minDate={minDate}
+              maxDate={maxDate}
+              onChangeFrom={setTableFromDate}
+              onChangeTo={setTableToDate}
+            />
+          </div>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Campaign</th><th>Channel</th><th>Phase</th>
+                <th>Channel</th><th>Campaign</th><th>Phase</th>
                 <th className="right">Impressions</th><th className="right">Reach</th>
                 <th className="right">Clicks</th><th className="right">Engagements</th>
                 <th className="right">Spend</th><th className="right">CTR</th>
@@ -279,8 +305,8 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono" title={r.campaign_name}>{r.campaign_name}</td>
                   <td><PlatformChip p={r.channel} /></td>
+                  <td className="mono" title={r.campaign_name}>{r.campaign_name}</td>
                   <td>{r.phase}</td>
                   <td className="right">{num(r.impressions)}</td>
                   <td className="right" title="Tổng cộng dồn theo ngày, có thể trùng user giữa các ngày">
@@ -325,9 +351,9 @@ function aggregateByCampaign(rows: DailyMetricRow[]) {
   }>();
 
   for (const r of rows) {
-    // Nếu 1 campaign có thể chạy đồng thời nhiều channel, đổi key thành
-    // `${r.campaign_name}__${r.channel}` để không gộp nhầm giữa các kênh.
-    const key = r.campaign_name;
+    // Gộp theo cả campaign + channel, tránh trộn lẫn số liệu của 2 kênh
+    // khác nhau vào chung 1 dòng khi 1 campaign chạy đa kênh.
+    const key = `${r.campaign_name}__${r.channel}`;
     const existing = map.get(key);
 
     if (existing) {

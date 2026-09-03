@@ -160,18 +160,22 @@ function wrapMultiline(raw: string, maxLen: number, maxLines: number): string[] 
 
 // Shared x-axis config. Long category labels (e.g. full campaign names) wrap
 // onto multiple lines so the full text stays visible without overflowing.
-function xAxis() {
+// `rotate`: khi số lượng nhãn nhiều (vd chọn 30/90 ngày trên daily trend),
+// xoay nhãn 90 độ để tránh chữ đè lên nhau; mặc định giữ ngang (0 độ).
+function xAxis(rotate = false) {
   return {
     grid: { display: false },
     ticks: {
       color: chartText(),
       autoSkip: false,
-      maxRotation: 0,
-      minRotation: 0,
+      maxRotation: rotate ? 60 : 0,
+      minRotation: rotate ? 60 : 0,
       font: { size: 10 },
       callback(this: { getLabelForValue: (v: number) => string }, value: number | string) {
         const raw = typeof value === "number" ? this.getLabelForValue(value) : String(value)
-        return wrapLabel(raw)
+        // Khi xoay dọc, nhãn đã đứng thẳng theo cột nên không cần/không còn
+        // đủ chỗ ngang để word-wrap nhiều dòng — trả nguyên chuỗi 1 dòng.
+        return rotate ? raw : wrapLabel(raw)
       },
     },
   }
@@ -468,6 +472,10 @@ export function RateLineChart({
   );
 }
 
+// Số nhãn từ đó trở lên sẽ tự động xoay dọc trục X (áp dụng cho daily trend
+// khi user chọn khoảng 30/90 ngày) — 7 và 14 ngày vẫn giữ nhãn ngang như cũ.
+const ROTATE_LABEL_THRESHOLD = 15
+
 export function VolumeEfficiencyChart({
   labels,
   impressions,
@@ -517,8 +525,9 @@ export function VolumeEfficiencyChart({
     })
   }
   // Left axis = volume (impressions); two right axes = CTR (%) and Frequency.
+  const shouldRotate = labels.length >= ROTATE_LABEL_THRESHOLD
   const scales = {
-    x: xAxis(),
+    x: xAxis(shouldRotate),
     y: { position: "left" as const, grid: { color: chartGrid() }, ticks: { color: chartText() } },
     y1: { position: "right" as const, grid: { drawOnChartArea: false }, ticks: { color: seriesColor(c.secondary) } },
     ...(frequency
