@@ -281,6 +281,9 @@ export function VolumeBarChart({
   reach,
   googleImpressions,
   metaImpressions,
+  ctr,
+  googleCtr,
+  metaCtr,
   maxLabelLength = 14,
   maxLabelLines = 3,
   minBarWidth = 90,
@@ -290,23 +293,29 @@ export function VolumeBarChart({
   reach?: number[];
   googleImpressions?: number[];
   metaImpressions?: number[];
+  // + thêm: khi truyền, vẽ thêm (các) đường CTR trên trục Y phụ bên phải,
+  // đè lên cùng chart cột Volume thay vì tách chart riêng
+  ctr?: number[];
+  googleCtr?: number[];
+  metaCtr?: number[];
   maxLabelLength?: number;
   maxLabelLines?: number;
   minBarWidth?: number;
 }) {
   const c = useClientTheme();
   const splitByPlatform = !!(googleImpressions && metaImpressions);
+  const splitCtrByPlatform = !!(googleCtr && metaCtr);
+  const hasCtr = !!ctr || splitCtrByPlatform;
 
-  const datasets: ChartData<"bar">["datasets"] = splitByPlatform
+  const barDatasets: ChartData<"bar">["datasets"] = splitByPlatform
     ? [
         {
           label: "Google Ads",
           data: googleImpressions!,
           backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.85),
           borderRadius: 6,
-          // + thêm: cùng stack "platform" để 2 dataset này chồng lên nhau
-          // theo từng nhóm tuổi thay vì đứng cạnh nhau
           stack: "platform",
+          yAxisID: "y",
         },
         {
           label: "Meta Ads",
@@ -314,6 +323,7 @@ export function VolumeBarChart({
           backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.85),
           borderRadius: 6,
           stack: "platform",
+          yAxisID: "y",
         },
       ]
     : [
@@ -322,11 +332,62 @@ export function VolumeBarChart({
           data: impressions,
           backgroundColor: hexToRgba(c.primary, 0.6),
           borderRadius: 6,
+          yAxisID: "y",
         },
         ...(reach
-          ? [{ label: "Reach", data: reach, backgroundColor: hexToRgba(c.accent, 0.45), borderRadius: 6 }]
+          ? [{ label: "Reach", data: reach, backgroundColor: hexToRgba(c.accent, 0.45), borderRadius: 6, yAxisID: "y" }]
           : []),
       ];
+
+  // Đường CTR — vẽ trên trục phụ y1, không stack, nằm đè lên cột volume
+  const lineDatasets: ChartData<"line">["datasets"] = [
+    ...(ctr
+      ? [{
+          type: "line" as const,
+          label: "CTR tổng (%)",
+          data: ctr,
+          borderColor: seriesColor(c.secondary),
+          backgroundColor: seriesColor(c.secondary),
+          fill: false,
+          tension: 0.4,
+          pointRadius: 3,
+          borderWidth: 2.5,
+          yAxisID: "y1",
+        }]
+      : []),
+    ...(splitCtrByPlatform
+      ? [
+          {
+            type: "line" as const,
+            label: "CTR Google (%)",
+            data: googleCtr!,
+            borderColor: PLATFORM_COLORS.Google,
+            backgroundColor: PLATFORM_COLORS.Google,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3,
+            borderWidth: 1.5,
+            borderDash: [4, 3] as [number, number],
+            yAxisID: "y1",
+          },
+          {
+            type: "line" as const,
+            label: "CTR Meta (%)",
+            data: metaCtr!,
+            borderColor: PLATFORM_COLORS.Meta,
+            backgroundColor: PLATFORM_COLORS.Meta,
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3,
+            borderWidth: 1.5,
+            borderDash: [4, 3] as [number, number],
+            yAxisID: "y1",
+          },
+        ]
+      : []),
+  ];
+
+  const datasets = [...barDatasets, ...lineDatasets] as ChartData<"bar">["datasets"];
 
   const defaultOptions = baseOptions();
   const defaultScales = axes(false);
@@ -335,8 +396,6 @@ export function VolumeBarChart({
     ...defaultOptions,
     scales: {
       ...defaultScales,
-      // + thêm: bật stacked cho cả 2 trục khi đang tách theo platform, để
-      // Google/Meta chồng lên nhau thành 1 cột duy nhất mỗi nhóm tuổi
       x: {
         ...defaultScales.x,
         stacked: splitByPlatform,
@@ -353,9 +412,21 @@ export function VolumeBarChart({
         ...defaultScales.y,
         stacked: splitByPlatform,
       },
+      // Trục phụ cho CTR — chỉ thêm khi có data CTR truyền vào
+      ...(hasCtr
+        ? {
+            y1: {
+              position: "right" as const,
+              grid: { drawOnChartArea: false },
+              ticks: { color: seriesColor(c.secondary) },
+              beginAtZero: true,
+            },
+          }
+        : {}),
     },
     plugins: {
       ...defaultOptions.plugins,
+      legend: { display: true, labels: { ...defaultOptions.plugins?.legend?.labels } },
       tooltip: {
         ...(defaultOptions.plugins?.tooltip || {}),
         callbacks: {

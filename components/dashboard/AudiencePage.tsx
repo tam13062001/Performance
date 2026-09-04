@@ -131,31 +131,23 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
         </label>
       </div>
 
-      <div className="grid-2 two-thirds">
-        <article className="card">
-          <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label}</h3></div></div>
-          <div className="chart-wrap large">
+        <div className="grid-2 two-thirds">
+        <article className="card" style={{ gridColumn: "1 / -1" }}>
+            <div className="card-head"><div><small>Volume & Rate</small><h3>Impressions & CTR theo {label}</h3></div></div>
+            <div className="chart-wrap large">
             <VolumeBarChart
-              labels={breakdown.map((b) => b.label)}
-              impressions={breakdown.map((b) => b.impressions)}
-              reach={breakdown.map((b) => b.reach)}
-              googleImpressions={breakdown.map((b) => b.googleImpressions)}
-              metaImpressions={breakdown.map((b) => b.metaImpressions)}
+                labels={breakdown.map((b) => b.label)}
+                impressions={breakdown.map((b) => b.impressions)}
+                reach={breakdown.map((b) => b.reach)}
+                googleImpressions={breakdown.map((b) => b.googleImpressions)}
+                metaImpressions={breakdown.map((b) => b.metaImpressions)}
+                ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
+                googleCtr={breakdown.map((b) => Number(b.googleCtr.toFixed(2)))}
+                metaCtr={breakdown.map((b) => Number(b.metaCtr.toFixed(2)))}
             />
-          </div>
+            </div>
         </article>
-        <article className="card">
-          <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
-          <div className="chart-wrap large">
-            <RateLineChart
-              labels={breakdown.map((b) => b.label)}
-              ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
-              googleCtr={breakdown.map((b) => Number(b.googleCtr.toFixed(2)))}
-              metaCtr={breakdown.map((b) => Number(b.metaCtr.toFixed(2)))}
-            />
-          </div>
-        </article>
-      </div>
+        </div>
 
       <div className="grid-2">
         <article className="card">

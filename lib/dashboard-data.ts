@@ -732,16 +732,31 @@ export type DemographicBreakdown = {
 };
 
 // Chuẩn hoá breakdown_value trước khi group — các platform có thể trả về
-// cùng 1 giá trị nhưng khác định dạng (vd Google "25-34" vs Meta "25 - 34",
-// hoặc "unknown"/"Unknown" khác hoa thường), khiến chúng bị tách thành 2
-// nhóm riêng thay vì gộp làm 1. Chuẩn hoá về đúng 1 dạng hiển thị thống nhất.
+// cùng 1 giá trị nhưng khác định dạng:
+//   - khác spacing quanh dấu gạch: "25-34" (Google) vs "25 - 34" (Meta)
+//   - khác hoa/thường: "female" (Google) vs "Female" (Meta)
+// Nếu không chuẩn hoá, chúng bị tách thành 2 hàng riêng trong Map thay vì
+// gộp làm 1, khiến cột stacked bị tách đôi thay vì chồng lên nhau.
 function canonicalizeBreakdownValue(raw: string): string {
   let v = (raw ?? "").trim();
+  if (v === "") return "Unknown";
+
   // "25 - 34" / "25  -  34" -> "25-34"
   v = v.replace(/\s*-\s*/g, "-");
   v = v.replace(/\s+/g, " ");
-  if (v.toLowerCase() === "unknown" || v === "") return "Unknown";
-  return v;
+
+  // So sánh không phân biệt hoa/thường — "Unknown" luôn viết hoa chữ đầu.
+  if (v.toLowerCase() === "unknown") return "Unknown";
+
+  // Giá trị dạng số (độ tuổi "25-34", "65+") giữ nguyên, không cần đổi hoa/thường.
+  if (/^[\d+\-]+$/.test(v)) return v;
+
+  // Còn lại (giới tính, khu vực…) chuẩn hoá về Title Case để "female"/"Female"/
+  // "FEMALE" đều gộp về cùng 1 giá trị hiển thị nhất quán: "Female".
+  return v
+    .split(" ")
+    .map((word) => (word.length > 0 ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
+    .join(" ");
 }
 
 export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {

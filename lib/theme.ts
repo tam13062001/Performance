@@ -54,14 +54,43 @@ export const CLIENT_PRESETS: { label: string; primary: string; secondary: string
   { label: "Phúc Long", primary: "#0B6B3A", secondary: "#C9A227", accent: "#8DC63F" },
 ]
 
-// Fixed platform colors — never follow the client brand.
 export const PLATFORM_COLORS: Record<string, string> = {
-  Google: "#4285F4",   // xanh dương sáng — giữ nguyên, đã đủ nổi trên nền tối
-  Meta: "#FF7A59",     // cam san hô — tương phản mạnh với xanh Google, dễ phân biệt tức thì
-  YouTube: "#EF4444",
-  TikTok: "#2DD4BF",   // đổi từ đen (#111318) sang xanh ngọc — màu đen gần như vô hình trên nền tối
+  Google: "#4285F4",
+  Meta: "#f59e0b",
+  YouTube: "#FF0000",
+  TikTok: "#25F4EE",
   Programmatic: "#8B5CF6",
 }
+
+// Multi-stop gradients cho platform có brand identity dạng gradient (hiện
+// chỉ Meta). null = không có gradient, dùng PLATFORM_COLORS làm màu đặc.
+export const PLATFORM_GRADIENT_STOPS: Record<string, string[] | null> = {
+  Google: null,
+  Meta: ["#0064E0", "#7B2FF7", "#F72585", "#FF7A00"],
+  YouTube: null,
+  TikTok: null,
+  Programmatic: null,
+}
+
+// Tạo CanvasGradient theo chiều dọc (top -> bottom) cho 1 dataset, dùng cho
+// cả bar (backgroundColor) và line (borderColor). Chart.js gọi callback này
+// mỗi lần vẽ, có sẵn ctx + chartArea nên không cần biết kích thước trước.
+function platformScriptableColor(platformKey: string, fallbackHex: string, alpha = 1) {
+  const stops = PLATFORM_GRADIENT_STOPS[platformKey];
+  return (context: any) => {
+    const { ctx, chartArea } = context.chart;
+    if (!chartArea) return hexToRgba(fallbackHex, alpha); // lần vẽ đầu chưa có chartArea
+
+    if (!stops) return hexToRgba(fallbackHex, alpha);
+
+    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+    stops.forEach((color, i) => {
+      gradient.addColorStop(i / (stops.length - 1), hexToRgba(color, alpha));
+    });
+    return gradient;
+  };
+}
+
 // Fixed performance-status colors — never follow the client brand.
 export const STATUS_COLORS = { good: "#1CAF75", watch: "#F5A623", under: "#E5484D", none: "#6B7280" }
 
