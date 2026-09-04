@@ -8,9 +8,10 @@ import {
   AudiencePage,
   ChannelDashboard,
   PlanPage,
-  useAvailableMonths,
   DailyTrendPage,
-} from "./dashboard";
+} from "./dashboard/index";
+
+import {useAvailableMonths} from "./dashboard/hooks";
 import { SHAREABLE_PAGES, type SharePageId } from "@/lib/share-pages";
 import { applyProjectTheme, ClientThemeContext, DEFAULT_THEME } from "@/lib/theme";
 
@@ -123,6 +124,36 @@ function PasswordGate({ slug, onAuthed }: { slug: string; onAuthed: () => void }
     </main>
   );
 }
+export function useSyncInfo(projectCode: string) {
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${projectCode}/sync-info`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setLastSyncedAt(data.lastSyncedAt ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setLastSyncedAt(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCode]);
+
+  return { lastSyncedAt };
+}
+
+export function formatDateTimeVN(iso: string): string {
+  return new Date(iso).toLocaleString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function ShareView({ slug }: { slug: string }) {
   const [meta, setMeta] = useState<ShareMeta | null>(null);
@@ -134,6 +165,7 @@ export function ShareView({ slug }: { slug: string }) {
   const projectCode = meta?.projectCode ?? "";
   const availableMonths = useAvailableMonths(projectCode);
 
+  const { lastSyncedAt } = useSyncInfo(projectCode);
   // Luôn ép light mode cho toàn bộ trang Share, không phụ thuộc theme client hay session trước đó
   useEffect(() => {
     document.documentElement.dataset.uiTheme = "light";
@@ -205,7 +237,7 @@ export function ShareView({ slug }: { slug: string }) {
 
   return (
     <ClientThemeContext.Provider value={themeContextValue}>
-      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 16px" }}>
+      <main style={{ maxWidth: 1300, margin: "0 auto", padding: "24px 16px" }}>
         <header className="topbar">
           <div>
             <div className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -217,6 +249,11 @@ export function ShareView({ slug }: { slug: string }) {
             </div>
             <h1>{meta.projectLabel}</h1>
             {meta.label && <p>{meta.label}</p>}
+            {lastSyncedAt && (
+            <p className="">
+              Lần đồng bộ gần nhất: {formatDateTimeVN(lastSyncedAt)}
+            </p>
+          )}
           </div>
           <div className="header-controls">
             <label className="period-select">

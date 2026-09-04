@@ -56,13 +56,12 @@ export const CLIENT_PRESETS: { label: string; primary: string; secondary: string
 
 // Fixed platform colors — never follow the client brand.
 export const PLATFORM_COLORS: Record<string, string> = {
-  Google: "#4285F4",
-  Meta: "#4B56D2",
+  Google: "#4285F4",   // xanh dương sáng — giữ nguyên, đã đủ nổi trên nền tối
+  Meta: "#FF7A59",     // cam san hô — tương phản mạnh với xanh Google, dễ phân biệt tức thì
   YouTube: "#EF4444",
-  TikTok: "#111318",
+  TikTok: "#2DD4BF",   // đổi từ đen (#111318) sang xanh ngọc — màu đen gần như vô hình trên nền tối
   Programmatic: "#8B5CF6",
 }
-
 // Fixed performance-status colors — never follow the client brand.
 export const STATUS_COLORS = { good: "#1CAF75", watch: "#F5A623", under: "#E5484D", none: "#6B7280" }
 

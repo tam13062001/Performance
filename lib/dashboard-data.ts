@@ -693,15 +693,22 @@ export type DemographicRow = {
   clicks: number;
   spend: number | null;
   ctr: number;
+  report_date: string | null;
 };
 
 export async function loadDemographics(
   projectCode: string,
   periodMonth: string,
-  breakdownType: "age" | "gender" | "region" | "campaign" | "keyword"
+  breakdownType: "age" | "gender" | "region" | "campaign" | "keyword",
+  reportDate?: string
 ): Promise<DemographicRow[]> {
   const all = await fetchTable<DemographicRow>("ad_demographic_metrics", projectCode);
-  return all.filter((r) => r.period_month === periodMonth && r.breakdown_type === breakdownType);
+  return all.filter(
+    (r) =>
+      r.period_month === periodMonth &&
+      r.breakdown_type === breakdownType &&
+      (!reportDate || r.report_date === reportDate)
+  );
 }
 
 export type DemographicBreakdown = {
@@ -713,6 +720,15 @@ export type DemographicBreakdown = {
   ctr: number;
   googleImpressions: number;
   metaImpressions: number;
+  // + thêm: tách riêng theo platform để vẽ chart so sánh Google vs Meta
+  googleReach: number;
+  metaReach: number;
+  googleClicks: number;
+  metaClicks: number;
+  googleSpend: number;
+  metaSpend: number;
+  googleCtr: number;
+  metaCtr: number;
 };
 
 export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {
@@ -721,19 +737,42 @@ export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdo
     const key = r.breakdown_value;
     const item =
       map.get(key) ??
-      ({ label: key, impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0, googleImpressions: 0, metaImpressions: 0 } as DemographicBreakdown);
+      ({
+        label: key,
+        impressions: 0, reach: 0, clicks: 0, spend: 0, ctr: 0,
+        googleImpressions: 0, metaImpressions: 0,
+        googleReach: 0, metaReach: 0,
+        googleClicks: 0, metaClicks: 0,
+        googleSpend: 0, metaSpend: 0,
+        googleCtr: 0, metaCtr: 0,
+      } as DemographicBreakdown);
 
     item.impressions += r.impressions || 0;
     item.reach += r.reach || 0;
     item.clicks += r.clicks || 0;
     item.spend += r.spend || 0;
-    if (r.platform === "google") item.googleImpressions += r.impressions || 0;
-    else item.metaImpressions += r.impressions || 0;
+
+    if (r.platform === "google") {
+      item.googleImpressions += r.impressions || 0;
+      item.googleReach += r.reach || 0;
+      item.googleClicks += r.clicks || 0;
+      item.googleSpend += r.spend || 0;
+    } else {
+      item.metaImpressions += r.impressions || 0;
+      item.metaReach += r.reach || 0;
+      item.metaClicks += r.clicks || 0;
+      item.metaSpend += r.spend || 0;
+    }
 
     map.set(key, item);
   }
   return [...map.values()]
-    .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
+    .map((i) => ({
+      ...i,
+      ctr: ctrOf(i.impressions, i.clicks),
+      googleCtr: ctrOf(i.googleImpressions, i.googleClicks),
+      metaCtr: ctrOf(i.metaImpressions, i.metaClicks),
+    }))
     .sort((a, b) => b.impressions - a.impressions);
 }
 

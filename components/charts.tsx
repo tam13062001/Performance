@@ -279,38 +279,52 @@ export function VolumeBarChart({
   labels,
   impressions,
   reach,
-  maxLabelLength = 14, // độ dài mỗi dòng — giảm xuống để label chia thành 2-3 dòng thay vì 1 dòng dài
-  maxLabelLines = 3, // số dòng tối đa cho name trên trục X
-  minBarWidth = 90, // độ rộng tối thiểu (px) dành cho mỗi cột — chart sẽ tự giãn rộng ra và cho phép cuộn ngang thay vì bóp chật nhãn
+  googleImpressions,
+  metaImpressions,
+  maxLabelLength = 14,
+  maxLabelLines = 3,
+  minBarWidth = 90,
 }: {
   labels: string[];
   impressions: number[];
   reach?: number[];
+  // + thêm: khi truyền cặp này, chart sẽ tách 2 cột Google/Meta thay vì gộp chung
+  googleImpressions?: number[];
+  metaImpressions?: number[];
   maxLabelLength?: number;
   maxLabelLines?: number;
   minBarWidth?: number;
 }) {
   const c = useClientTheme();
+  const splitByPlatform = !!(googleImpressions && metaImpressions);
 
-  const datasets: ChartData<"bar">["datasets"] = [
-    {
-      label: "Impressions",
-      data: impressions,
-      backgroundColor: hexToRgba(c.primary, 0.6),
-      borderRadius: 6,
-    },
-  ];
+  const datasets: ChartData<"bar">["datasets"] = splitByPlatform
+    ? [
+        {
+          label: "Google Ads",
+          data: googleImpressions!,
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.75),
+          borderRadius: 6,
+        },
+        {
+          label: "Meta Ads",
+          data: metaImpressions!,
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.75),
+          borderRadius: 6,
+        },
+      ]
+    : [
+        {
+          label: "Impressions",
+          data: impressions,
+          backgroundColor: hexToRgba(c.primary, 0.6),
+          borderRadius: 6,
+        },
+        ...(reach
+          ? [{ label: "Reach", data: reach, backgroundColor: hexToRgba(c.accent, 0.45), borderRadius: 6 }]
+          : []),
+      ];
 
-  if (reach) {
-    datasets.push({
-      label: "Reach",
-      data: reach,
-      backgroundColor: hexToRgba(c.accent, 0.45),
-      borderRadius: 6,
-    });
-  }
-
-  // Lấy cấu hình trục và option mặc định của bạn
   const defaultOptions = baseOptions();
   const defaultScales = axes(false);
 
@@ -322,8 +336,6 @@ export function VolumeBarChart({
         ...defaultScales.x,
         ticks: {
           ...(defaultScales.x?.ticks || {}),
-          // Xuống hàng theo từ (word-wrap) thay vì cắt 1 dòng bằng "…",
-          // tối đa maxLabelLines dòng để không bị miss thông tin.
           callback: function (value: any, index: number) {
             const originalLabel = labels[index] || "";
             if (labels.length <= 2) return originalLabel;
@@ -338,7 +350,6 @@ export function VolumeBarChart({
         ...(defaultOptions.plugins?.tooltip || {}),
         callbacks: {
           ...(defaultOptions.plugins?.tooltip?.callbacks || {}),
-          // Hiển thị full tên khi Hover
           title: function (tooltipItems: any) {
             return labels[tooltipItems[0].dataIndex];
           },
@@ -347,9 +358,6 @@ export function VolumeBarChart({
     },
   };
 
-  // Chart canvas được đặt trong 1 khung có minWidth tính theo số lượng nhãn.
-  // Khi số cột nhiều/tên dài, khung sẽ rộng hơn container cha và tự cuộn
-  // ngang (overflow-x: auto) thay vì bóp từng cột lại quá chật.
   const chartMinWidth = Math.max(labels.length * minBarWidth, 0);
 
   return (
@@ -365,55 +373,79 @@ export function RateLineChart({
   labels,
   ctr,
   frequency,
-  maxLabelLength = 14, // độ dài mỗi dòng — giảm xuống để label chia thành 2-3 dòng thay vì 1 dòng dài
-  maxLabelLines = 3, // số dòng tối đa cho name trên trục X
-  minBarWidth = 90, // độ rộng tối thiểu (px) dành cho mỗi điểm — chart sẽ tự giãn rộng ra và cho phép cuộn ngang thay vì bóp chật nhãn
+  googleCtr,
+  metaCtr,
+  maxLabelLength = 14,
+  maxLabelLines = 3,
 }: {
   labels: string[];
   ctr: number[];
   frequency?: number[];
+  // + thêm: khi truyền cặp này, chart sẽ tách 2 đường CTR Google/Meta
+  googleCtr?: number[];
+  metaCtr?: number[];
   maxLabelLength?: number;
   maxLabelLines?: number;
   minBarWidth?: number;
 }) {
   const c = useClientTheme();
+  const splitByPlatform = !!(googleCtr && metaCtr);
 
-  const datasets: ChartData<"line">["datasets"] = [
-    {
-      label: "CTR (%)",
-      data: ctr,
-      borderColor: seriesColor(c.secondary),
-      backgroundColor: hexToRgba(seriesColor(c.secondary), 0.15),
-      fill: true,
-      tension: 0.4,
-      pointRadius: 4,
-      yAxisID: "y",
-    },
-  ];
+  const datasets: ChartData<"line">["datasets"] = splitByPlatform
+    ? [
+        {
+          label: "CTR Google (%)",
+          data: googleCtr!,
+          borderColor: PLATFORM_COLORS.Google,
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.12),
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          yAxisID: "y",
+        },
+        {
+          label: "CTR Meta (%)",
+          data: metaCtr!,
+          borderColor: PLATFORM_COLORS.Meta,
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.12),
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          yAxisID: "y",
+        },
+      ]
+    : [
+        {
+          label: "CTR (%)",
+          data: ctr,
+          borderColor: seriesColor(c.secondary),
+          backgroundColor: hexToRgba(seriesColor(c.secondary), 0.15),
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          yAxisID: "y",
+        },
+        ...(frequency
+          ? [{
+              label: "Frequency",
+              data: frequency,
+              borderColor: seriesColor(c.accent),
+              backgroundColor: hexToRgba(seriesColor(c.accent), 0.15),
+              borderDash: [5, 4] as [number, number],
+              fill: false,
+              tension: 0.4,
+              pointRadius: 4,
+              yAxisID: "y1",
+            }]
+          : []),
+      ];
 
-  if (frequency) {
-    datasets.push({
-      label: "Frequency",
-      data: frequency,
-      borderColor: seriesColor(c.accent),
-      backgroundColor: hexToRgba(seriesColor(c.accent), 0.15),
-      borderDash: [5, 4],
-      fill: false,
-      tension: 0.4,
-      pointRadius: 4,
-      yAxisID: "y1",
-    });
-  }
-
-  const baseScales = frequency
+  const hasSecondaryAxis = !!frequency && !splitByPlatform;
+  const baseScales = hasSecondaryAxis
     ? {
         x: xAxis(),
         y: { position: "left" as const, grid: { color: chartGrid() }, ticks: { color: chartText() } },
-        y1: {
-          position: "right" as const,
-          grid: { drawOnChartArea: false },
-          ticks: { color: seriesColor(c.accent) },
-        },
+        y1: { position: "right" as const, grid: { drawOnChartArea: false }, ticks: { color: seriesColor(c.accent) } },
       }
     : axes(false);
 
@@ -425,24 +457,13 @@ export function RateLineChart({
         ...(baseScales.x?.ticks || {}),
         callback: function (value: any, index: number) {
           const originalLabel = labels[index] || "";
-
-          // Xuống hàng theo từ (word-wrap) thay vì cắt 1 dòng bằng "…",
-          // tối đa maxLabelLines dòng để không bị miss thông tin.
           if (labels.length <= 2) return originalLabel;
           return wrapMultiline(originalLabel, maxLabelLength, maxLabelLines);
         },
       },
     },
-    y: {
-      ...(baseScales.y || {}),
-      beginAtZero: true, // Bắt buộc trục Y bên trái bắt đầu từ 0
-    },
-    ...(baseScales.y1 && {
-      y1: {
-        ...baseScales.y1,
-        beginAtZero: true, // Bắt buộc trục Y bên phải (nếu có frequency) bắt đầu từ 0
-      }
-    })
+    y: { ...(baseScales.y || {}), beginAtZero: true },
+    ...(baseScales.y1 && { y1: { ...baseScales.y1, beginAtZero: true } }),
   };
 
   const bOptions = baseOptions();
@@ -450,7 +471,8 @@ export function RateLineChart({
     ...bOptions,
     plugins: {
       ...bOptions.plugins,
-      legend: { display: !!frequency },
+      // Hiện legend khi có nhiều hơn 1 series (frequency hoặc tách platform)
+      legend: { display: !!frequency || splitByPlatform },
       tooltip: {
         ...(bOptions.plugins?.tooltip || {}),
         callbacks: {
@@ -464,12 +486,7 @@ export function RateLineChart({
     scales: customScales,
   };
 
-  return (
-    <Line
-      data={{ labels, datasets }}
-      options={customOptions}
-    />
-  );
+  return <Line data={{ labels, datasets }} options={customOptions} />;
 }
 
 // Số nhãn từ đó trở lên sẽ tự động xoay dọc trục X (áp dụng cho daily trend

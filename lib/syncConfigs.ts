@@ -429,10 +429,53 @@ function buildDeliveryStatusConfig(projectCode: string, periodType: 'YTD' | 'MTD
 
 /* =========================================================
  * DEMOGRAPHIC CHUNG (GOOGLE, META, TIKTOK, YOUTUBE)
+ *
+ * 🔧 UPDATE (VUQ3 — DATA_SEM_VU_2026.xlsx / DATA_FACEBOOK_VU_2026.xlsx):
+ * Đã nhận được 2 file thật dùng làm demoSheets.sem / demoSheets.facebook
+ * của VUQ3. Xác nhận:
+ *  - Header của Age/Gender/Region (cả Google lẫn Meta) KHỚP ĐÚNG với
+ *    dimensionAliases đã đoán từ trước (age/gender/region (matched),
+ *    impr., clicks, ctr, cost/spend...) — không cần sửa alias.
+ *  - NHƯNG tên tab thật KHÔNG có prefix ytd_/mtd_ như code cũ giả định —
+ *    chỉ là "Age", "Gender", "Region", "Keyword", "Campaign", "Term" trần.
+ *    -> tabName đổi thành mảng [tên có prefix (giữ để tương thích ngược
+ *    nếu sau này có sheet khác đặt đúng kiểu cũ), tên trần] — cùng pattern
+ *    đã dùng cho DELIVERY_STATUS/UNIT_COST_PLAN.
+ *  - ⚠️ CTR KHÔNG đồng nhất giữa 2 nguồn: Google/SEM trả về fraction 0–1
+ *    (vd 0.2107 = 21.07%) như code cũ giả định, nhưng Meta/Facebook demo-
+ *    graphic (DATA_FACEBOOK_VU_2026.xlsx) đã tính sẵn CTR dạng PHẦN TRĂM
+ *    (vd 5.647841 nghĩa là 5.65%, không phải 0.05647). Nếu nhân 100 cho
+ *    cả 2 như code cũ, số của Meta sẽ sai lệch 100 lần. Đã sửa: chỉ nhân
+ *    100 khi platform === 'google'.
+ *  - Ngày trong SEM sheet nằm ở cột "Day" (1 cột ngày đơn, không phải
+ *    range date_stop/end_date) -> thêm alias 'day'/'date' khi tính
+ *    periodMonth cho MTD.
+ *  - Đã thêm 3 breakdown_type mới CHỈ áp dụng cho google: 'keyword'
+ *    (tab Keyword, alias 'search keyword'), 'campaign' (tab Campaign,
+ *    breakdown_value = ad group, alias 'ad group'), 'term' (tab Term,
+ *    alias 'search term'). KHÔNG thêm 3 loại này vào vòng lặp dimensions
+ *    dùng chung cho cả 4 platform (age/gender/region/device) vì Meta/
+ *    Tiktok/Youtube không có các tab này — xem getAllRawConfigsForProject
+ *    bên dưới, gọi riêng cho google.
+ *  - Tab "Utd" trong DATA_FACEBOOK_VU_2026.xlsx (data campaign-level,
+ *    không breakdown) — theo xác nhận, KHÔNG cần sync, cố tình bỏ qua,
+ *    không có config nào match tab này.
+ *  - ⚠️ CHƯA XÁC NHẬN: nếu 2 tab trùng tên (vd 'Keyword' xuất hiện trong
+ *    cả candidate YTD và MTD vì sheet chỉ có 1 tab 'Keyword' duy nhất,
+ *    không tách ytd_/mtd_ riêng), findConfigForSheetTab (dùng .find(),
+ *    trả về match ĐẦU TIÊN) sẽ luôn resolve về config được push trước
+ *    (YTD) khi đồng bộ qua webhook theo tabName — bản MTD tương ứng có
+ *    thể không bao giờ được trigger qua đường webhook single-tab. Nếu
+ *    syncEngine của bạn cho phép nhiều config cùng khớp 1 tab (chạy tuần
+ *    tự tất cả match thay vì chỉ lấy match đầu) thì không vấn đề gì —
+ *    nhưng nếu không, cần tách sheet/tab riêng cho YTD và MTD của
+ *    Keyword/Campaign/Term/Age/Gender/Region, hoặc đổi cơ chế dispatch.
+ *    Báo tôi cách syncEngine xử lý nhiều config trùng tabName để tôi
+ *    điều chỉnh thêm nếu cần.
  * ========================================================= */
 export function buildDemographicConfig(
   platform: 'google' | 'meta' | 'tiktok' | 'youtube',
-  dimension: 'age' | 'gender' | 'region' | 'device',
+  dimension: 'age' | 'gender' | 'region' | 'device' | 'keyword' | 'campaign' | 'term',
   periodType: 'YTD' | 'MTD',
   sheetIdOverride?: string
 ): RowSyncConfig {
@@ -442,36 +485,51 @@ export function buildDemographicConfig(
     tiktok:  periodType === 'YTD' ? 'ytd_tiktok' : 'mtd_tiktok',
     youtube: periodType === 'YTD' ? 'ytd' : 'mtd',
   };
-  
-  const tabName = `${tabPrefixes[platform]}_${dimension}`;
+
+  // Tên tab kiểu cũ (có prefix ytd_/mtd_) — giữ lại phòng khi có sheet khác
+  // đặt tên đúng kiểu này.
+  const prefixedTabName = `${tabPrefixes[platform]}_${dimension}`;
+  // Tên tab THẬT trong 2 file VUQ3: viết hoa chữ cái đầu, không prefix.
+  const plainTabName = dimension.charAt(0).toUpperCase() + dimension.slice(1);
+  const tabName = [prefixedTabName, plainTabName];
+
   const dimensionAliases: Record<string, string[]> = {
     age: ['age', 'age_(matched)', 'age (matched)'],
     gender: ['gender', 'gender_(matched)', 'gender (matched)'],
     region: ['region', 'region_(matched)', 'region (matched)'],
     device: ['device', 'thiết bị', 'platform'],
+    // Google/SEM only:
+    keyword: ['search_keyword', 'search keyword'],
+    term: ['search_term', 'search term'],
+    campaign: ['ad_group', 'ad group'],
   };
 
   return {
     table: 'ad_demographic_metrics',
     tabName,
     sheetIdOverride,
-    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
+    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, ''), report_date`,
     deleteScopeColumns: ['period_month', 'platform', 'breakdown_type'],
     parseRowByHeader: (get) => {
       const campaignName = s(get(['campaign', 'campaign_name']));
       const breakdownValue = s(get(dimensionAliases[dimension]));
       if (!campaignName || !breakdownValue) return null;
 
-      const dateStopRaw = get(['date_stop', 'end_date', 'end date']);
+      const dateStopRaw = get(['date_stop', 'end_date', 'end date', 'day', 'date']);
       const dateStop = parseSheetDate(dateStopRaw);
-      
+      if (!dateStop) return null; // không có ngày -> không biết insert vào report_date nào, bỏ qua row
+
       let periodMonth = periodType === 'YTD' ? 'YTD' : currentMonthAbbr();
       if (periodType === 'MTD' && dateStop) {
         periodMonth = currentMonthAbbrFromDate(dateStop);
       }
 
+      const ctrRaw = nOrNull(get(['ctr']));
+      const ctr = ctrRaw === null ? null : (platform === 'google' ? ctrRaw * 100 : ctrRaw);
+
       return {
         period_month: periodMonth,
+        report_date: dateStop,          // 🆕 lưu đúng ngày thật, không chỉ bucket theo tháng
         platform,
         campaign_name: campaignName,
         breakdown_type: dimension,
@@ -481,7 +539,7 @@ export function buildDemographicConfig(
         reach: nOrNull(get(['reach'])),
         trueview_views: nOrNull(get(['trueview views', 'trueview_views'])),
         spend: nOrNull(get(['spend', 'cost'])),
-        ctr: nOrNull(get(['ctr'])) !== null ? n(get(['ctr'])) * 100 : null,
+        ctr,
       };
     },
   };
@@ -540,6 +598,15 @@ export async function getAllRawConfigsForProject(projectCode: string): Promise<R
         configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
         configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
       });
+
+      // 🔧 MỚI (VUQ3) — 3 tab bổ sung trong DATA_SEM_VU_2026.xlsx:
+      // Keyword, Campaign, Term. Chỉ tồn tại ở nguồn Google/SEM nên tách
+      // riêng khỏi vòng lặp `dimensions` dùng chung cho 4 platform.
+      const googleOnlyDimensions = ['keyword', 'campaign', 'term'] as const;
+      googleOnlyDimensions.forEach((dim) => {
+        configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
+        configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
+      });
     }
     
     if (demoSheets.facebook) {
@@ -547,6 +614,9 @@ export async function getAllRawConfigsForProject(projectCode: string): Promise<R
         configs.push(buildDemographicConfig('meta', dim, 'YTD', demoSheets.facebook));
         configs.push(buildDemographicConfig('meta', dim, 'MTD', demoSheets.facebook));
       });
+      // Tab "Utd" trong DATA_FACEBOOK_VU_2026.xlsx (data campaign-level,
+      // không breakdown theo age/gender/region) — theo xác nhận, KHÔNG
+      // cần sync, cố tình không tạo config nào cho tab này.
     }
 
     if (demoSheets.youtube) {
@@ -574,15 +644,11 @@ function currentMonthAbbr(): string {
 
 /* =========================================================
  * DEMOGRAPHIC — Google/SEM (age, gender, region)
- * ✅ MIGRATED — header thật đã xác nhận qua ảnh chụp: Campaign,
- * Age (Matched)/Gender (Matched)/Region (Matched), Clicks, Impr., CTR.
- * Bỏ hẳn logic lọc "row[2] === 'Clicks'" vì giờ đọc theo header,
- * dòng header không còn lẫn vào dataRows nữa (syncEngine tự tách).
- * Sheet có preamble title/date-range TRƯỚC header thật — nếu preamble
- * nằm ở rows[0]/rows[1] (trước dòng header), cần xác nhận header có
- * đúng nằm ở rows[0] không, nếu không phải hàng đầu tiên thì
- * indexByHeader (đang lấy rows[0] làm header) sẽ đọc sai — báo tôi
- * nếu sync ra 0 dòng để kiểm tra lại vị trí header thật.
+ * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI TỪ getAllRawConfigsForProject.
+ * Chức năng này đã được thay bằng buildDemographicConfig() dùng chung
+ * (xem phía trên, đã cập nhật để khớp header + tên tab thật của VUQ3).
+ * Giữ lại hàm này để không phá vỡ chỗ khác có thể còn import, nhưng nếu
+ * không còn nơi nào dùng thì có thể xoá an toàn.
  * ========================================================= */
 function buildGoogleDemographicConfig(
   dimension: 'age' | 'gender' | 'region',
@@ -627,6 +693,7 @@ function buildGoogleDemographicConfig(
  * DEMOGRAPHIC — Meta/Facebook (age, gender, region)
  * ⚠️ CHƯA MIGRATE - comment gốc tự ghi "chưa chắc header thật", nên
  * giữ index-based, đợi bạn xác nhận header thật rồi migrate sau.
+ * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — xem ghi chú ở buildGoogleDemographicConfig.
  * ========================================================= */
 function buildMetaDemographicConfig(
   dimension: 'age' | 'gender' | 'region',
@@ -667,9 +734,9 @@ function currentMonthAbbrFromDate(iso: string): string {
 
 /* =========================================================
  * SEM mtd_search_campaign
- * ✅ MIGRATED — cùng dạng report Google Ads như demographic Google
- * ở trên nên tái dùng alias tương tự (Campaign, Ad group, Clicks,
- * Impr., CTR).
+ * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — logic tương đương đã nằm trong
+ * buildDemographicConfig('google', 'campaign', ...) ở trên (breakdown_value
+ * = ad group, tab 'Campaign'). Giữ lại phòng khi có nơi khác import.
  * ========================================================= */
 function buildGoogleSearchCampaignConfig(sheetIdOverride?: string): RowSyncConfig {
   return {
@@ -701,7 +768,9 @@ function buildGoogleSearchCampaignConfig(sheetIdOverride?: string): RowSyncConfi
 
 /* =========================================================
  * SEM mtd_search_keyword
- * ✅ MIGRATED
+ * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — logic tương đương đã nằm trong
+ * buildDemographicConfig('google', 'term', ...) ở trên (tab 'Term',
+ * alias 'search term'). Giữ lại phòng khi có nơi khác import.
  * ========================================================= */
 function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig {
   return {
@@ -738,7 +807,20 @@ function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig
  * nên so sánh === với string luôn false -> DELIVERY_STATUS không bao
  * giờ khớp được config qua webhook. Giờ check cả trường hợp mảng.
  * (Áp dụng chung cho cả UNIT_COST_PLAN sau khi fix — cũng dùng mảng
- * tabName nên đã được xử lý đúng bởi Array.isArray check này.)
+ * tabName nên đã được xử lý đúng bởi Array.isArray check này. Cũng áp
+ * dụng cho buildDemographicConfig sau khi thêm mảng [prefixedTabName,
+ * plainTabName] cho VUQ3.)
+ *
+ * ⚠️ LƯU Ý — .find() chỉ trả về config KHỚP ĐẦU TIÊN. Với
+ * buildDemographicConfig, cả bản YTD và MTD của cùng 1 dimension đều có
+ * plainTabName giống hệt nhau (vd cả 2 đều chứa 'Keyword' trong mảng
+ * candidate) vì sheet VUQ3 chỉ có 1 tab vật lý duy nhất cho mỗi dimension
+ * (không tách riêng bản ytd_/mtd_). Nghĩa là nếu đồng bộ qua webhook theo
+ * tabName, luôn chỉ có bản YTD (được push trước trong getAllRawConfigsForProject)
+ * được chọn — bản MTD tương ứng sẽ không bao giờ khớp qua đường này. Nếu
+ * bạn cần cả 2 bản cùng chạy khi có update ở tab đó, cần sửa hàm này để
+ * trả về TẤT CẢ config khớp (không chỉ .find() đầu tiên) và cho phần gọi
+ * nó lặp qua tất cả, hoặc tách sheet/tab vật lý riêng cho YTD/MTD.
  * ========================================================= */
 export async function findConfigForSheetTab(
   sheetId: string,
