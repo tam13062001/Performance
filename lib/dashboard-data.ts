@@ -731,13 +731,69 @@ export type DemographicBreakdown = {
   metaCtr: number;
 };
 
+// ---------- Region alias mapping ----------
+// Google Ads và Meta Ads trả tên location theo format/naming khác nhau cho
+// CÙNG một nơi (vd: "Ho Chi Minh City" vs "Ho Chi Minh" vs "TP.HCM"). Việc
+// chuẩn hoá spacing/hoa-thường ở dưới (canonicalizeBreakdownValue) không xử
+// lý được trường hợp này vì đây là 2 chuỗi khác nhau về mặt semantic, không
+// chỉ khác định dạng. Cần 1 bảng tra alias riêng cho breakdown_type = "region".
+//
+// key: đã lowercase + bỏ dấu + trim khoảng trắng thừa.
+// value: label canonical sẽ hiển thị ra UI.
+const REGION_ALIASES: Record<string, string> = {
+  // Hồ Chí Minh
+  "ho chi minh city": "Hồ Chí Minh",
+  "ho chi minh": "Hồ Chí Minh",
+  "hcmc": "Hồ Chí Minh",
+  "tp.hcm": "Hồ Chí Minh",
+  "tp hcm": "Hồ Chí Minh",
+  "tp. ho chi minh": "Hồ Chí Minh",
+  "thanh pho ho chi minh": "Hồ Chí Minh",
+  "ho chi minh city, vietnam": "Hồ Chí Minh",
+  "ho chi minh, vietnam": "Hồ Chí Minh",
+
+  // Hà Nội
+  "hanoi": "Hà Nội",
+  "ha noi": "Hà Nội",
+  "hanoi city": "Hà Nội",
+  "ha noi city": "Hà Nội",
+  "hanoi, vietnam": "Hà Nội",
+
+  // Đà Nẵng
+  "da nang": "Đà Nẵng",
+  "danang": "Đà Nẵng",
+  "da nang city": "Đà Nẵng",
+
+  // Cần Thơ
+  "can tho": "Cần Thơ",
+  "can tho city": "Cần Thơ",
+
+  // Hải Phòng
+  "hai phong": "Hải Phòng",
+  "haiphong": "Hải Phòng",
+
+  // TODO: bổ sung thêm khi phát hiện biến thể mới trong data thật.
+  // Cách tìm: log các breakdown_value của breakdown_type="region" chưa
+  // match key nào ở trên, rồi thêm entry tương ứng vào bảng này.
+};
+
+function stripDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function regionAliasKey(s: string): string {
+  return stripDiacritics(s.trim().toLowerCase()).replace(/\s+/g, " ");
+}
+
 // Chuẩn hoá breakdown_value trước khi group — các platform có thể trả về
 // cùng 1 giá trị nhưng khác định dạng:
 //   - khác spacing quanh dấu gạch: "25-34" (Google) vs "25 - 34" (Meta)
 //   - khác hoa/thường: "female" (Google) vs "Female" (Meta)
+//   - khác naming hoàn toàn cho cùng 1 địa điểm (region): "Ho Chi Minh City"
+//     (Google) vs "Ho Chi Minh" (Meta) — xử lý qua REGION_ALIASES.
 // Nếu không chuẩn hoá, chúng bị tách thành 2 hàng riêng trong Map thay vì
-// gộp làm 1, khiến cột stacked bị tách đôi thay vì chồng lên nhau.
-function canonicalizeBreakdownValue(raw: string): string {
+// gộp làm 1, khiến chart/table bị tách đôi thay vì gộp về đúng 1 điểm.
+function canonicalizeBreakdownValue(raw: string, breakdownType?: DemographicRow["breakdown_type"]): string {
   let v = (raw ?? "").trim();
   if (v === "") return "Unknown";
 
@@ -748,11 +804,19 @@ function canonicalizeBreakdownValue(raw: string): string {
   // So sánh không phân biệt hoa/thường — "Unknown" luôn viết hoa chữ đầu.
   if (v.toLowerCase() === "unknown") return "Unknown";
 
+  // Region: tra bảng alias trước — nếu match thì trả về ngay label canonical,
+  // không cần qua bước Title Case ở dưới (label canonical đã đúng định dạng).
+  if (breakdownType === "region") {
+    const alias = REGION_ALIASES[regionAliasKey(v)];
+    if (alias) return alias;
+  }
+
   // Giá trị dạng số (độ tuổi "25-34", "65+") giữ nguyên, không cần đổi hoa/thường.
   if (/^[\d+\-]+$/.test(v)) return v;
 
-  // Còn lại (giới tính, khu vực…) chuẩn hoá về Title Case để "female"/"Female"/
-  // "FEMALE" đều gộp về cùng 1 giá trị hiển thị nhất quán: "Female".
+  // Còn lại (giới tính, khu vực chưa có trong bảng alias…) chuẩn hoá về
+  // Title Case để "female"/"Female"/"FEMALE" đều gộp về cùng 1 giá trị hiển
+  // thị nhất quán: "Female".
   return v
     .split(" ")
     .map((word) => (word.length > 0 ? word[0].toUpperCase() + word.slice(1).toLowerCase() : word))
@@ -762,7 +826,7 @@ function canonicalizeBreakdownValue(raw: string): string {
 export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {
   const map = new Map<string, DemographicBreakdown>();
   for (const r of rows) {
-    const key = canonicalizeBreakdownValue(r.breakdown_value);
+    const key = canonicalizeBreakdownValue(r.breakdown_value, r.breakdown_type);
     const item =
       map.get(key) ??
       ({
@@ -820,7 +884,7 @@ export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): Ca
   const map = new Map<string, CampaignBreakdownRow>();
   for (const r of rows) {
     const campaignName = r.campaign_name ?? "Unknown";
-    const breakdownValue = canonicalizeBreakdownValue(r.breakdown_value);
+    const breakdownValue = canonicalizeBreakdownValue(r.breakdown_value, r.breakdown_type);
     const key = `${campaignName}::${breakdownValue}::${r.platform}`;
     const item =
       map.get(key) ??

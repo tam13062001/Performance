@@ -20,6 +20,21 @@ import { currentMonthAbbrClient } from "./utils";
 import { NotAvailableNotice, PaginationControls } from "./shared-ui";
 import { demoTabs } from "./constants";
 
+type DateFilterMode = "single" | "range";
+
+// Tìm ngày có data gần nhất so với ngày mong muốn (`target`), ưu tiên ngày
+// <= target (data "gần nhất trong quá khứ"); nếu không có ngày nào <= target
+// thì lấy ngày sớm nhất đang có. `dates` phải sort tăng dần.
+function nearestAvailableDate(target: string, dates: string[]): string | null {
+  if (dates.length === 0) return null;
+  let candidate: string | null = null;
+  for (const d of dates) {
+    if (d <= target) candidate = d;
+    else break;
+  }
+  return candidate ?? dates[0];
+}
+
 /* ---------------- Channel dashboards ---------------- */
 function ExecutionSection({ projectCode, platform, level }: { projectCode: string; platform: "Google" | "Meta"; level: "campaign" | "adgroup" }) {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof loadExecutionRows>>>([]);
@@ -172,9 +187,24 @@ function PlatformAudienceSection({
 }) {
   const [dim, setDim] = useState<"age" | "gender" | "region" | "device">("age");
   const [view, setView] = useState<"value" | "campaign">("value");
-  const [rows, setRows] = useState<DemographicRow[]>([]);
+  // Toàn bộ rows của dim + platform hiện tại (KHÔNG lọc theo ngày) — dùng để
+  // vừa suy ra danh sách ngày có data, vừa lọc lại theo selectedDate/range
+  // ở client mà không cần gọi API lần 2.
+  const [allRows, setAllRows] = useState<DemographicRow[]>([]);
+  const [availableDates, setAvailableDates] = useState<string[]>([]); // ISO date, sort tăng dần
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Chế độ lọc ngày: 1 ngày cụ thể hoặc 1 khoảng ngày.
+  const [dateMode, setDateMode] = useState<DateFilterMode>("single");
+  // null = "chưa xác định" — tự set về ngày mới nhất có data ngay khi tải xong.
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // Khoảng ngày — mặc định set về [ngày sớm nhất, ngày mới nhất] đang có data.
+  const [rangeStart, setRangeStart] = useState<string | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<string | null>(null);
+
+  const latestAvailableDate = availableDates.length > 0 ? availableDates[availableDates.length - 1] : null;
+  const earliestAvailableDate = availableDates.length > 0 ? availableDates[0] : null;
 
   const platformKey = platform === "Google" ? "google" : platform === "Youtube" ? "youtube" : "meta";
 
@@ -183,13 +213,44 @@ function PlatformAudienceSection({
     setLoading(true);
     setError(null);
     loadDemographics(projectCode, periodMonth, dim)
-      .then((r) => !cancelled && setRows(r.filter((x) => x.platform === platformKey)))
+      .then((r) => {
+        if (cancelled) return;
+        const filtered = r.filter((x) => x.platform === platformKey);
+        const dates = Array.from(
+          new Set(filtered.map((x) => x.report_date).filter((d): d is string => !!d))
+        ).sort();
+        setAvailableDates(dates);
+        setAllRows(filtered);
+
+        setSelectedDate((prev) => {
+          if (prev && dates.includes(prev)) return prev;
+          const latest = dates.length > 0 ? dates[dates.length - 1] : null;
+          if (!latest) return prev;
+          return prev ? nearestAvailableDate(prev, dates) ?? latest : latest;
+        });
+
+        const earliest = dates.length > 0 ? dates[0] : null;
+        const latest = dates.length > 0 ? dates[dates.length - 1] : null;
+        setRangeStart((prev) => (prev && dates.includes(prev) ? prev : earliest));
+        setRangeEnd((prev) => (prev && dates.includes(prev) ? prev : latest));
+      })
       .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
   }, [projectCode, periodMonth, dim, platformKey]);
+
+  // Lọc lại theo ngày/khoảng ngày đang chọn ngay trên client — không cần
+  // fetch lại API.
+  const rows = useMemo(() => {
+    if (dateMode === "range") {
+      if (!rangeStart || !rangeEnd) return [];
+      const [from, to] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
+      return allRows.filter((r) => !!r.report_date && r.report_date >= from && r.report_date <= to);
+    }
+    return selectedDate ? allRows.filter((r) => r.report_date === selectedDate) : [];
+  }, [allRows, selectedDate, dateMode, rangeStart, rangeEnd]);
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
   const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
@@ -204,6 +265,26 @@ function PlatformAudienceSection({
 
   const label = demoTabs.find((t) => t.id === dim)?.label;
 
+  // Người dùng tự chọn 1 ngày trên date picker mà ngày đó không có data →
+  // tự fallback về ngày gần nhất có data thay vì để trắng trang.
+  function handleDateChange(next: string) {
+    if (availableDates.includes(next)) {
+      setSelectedDate(next);
+      return;
+    }
+    setSelectedDate(nearestAvailableDate(next, availableDates) ?? next);
+  }
+
+  function handleRangeStartChange(next: string) {
+    const resolved = availableDates.includes(next) ? next : nearestAvailableDate(next, availableDates) ?? next;
+    setRangeStart(resolved);
+  }
+
+  function handleRangeEndChange(next: string) {
+    const resolved = availableDates.includes(next) ? next : nearestAvailableDate(next, availableDates) ?? next;
+    setRangeEnd(resolved);
+  }
+
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
 
@@ -214,6 +295,60 @@ function PlatformAudienceSection({
           {demoTabs.map((t) => (
             <button key={t.id} type="button" className={`tab ${dim === t.id ? "active" : ""}`} onClick={() => setDim(t.id)}>{t.label}</button>
           ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="tabs" style={{ gap: 4 }}>
+            <button
+              type="button"
+              className={`tab ${dateMode === "single" ? "active" : ""}`}
+              onClick={() => setDateMode("single")}
+            >
+              1 ngày
+            </button>
+            <button
+              type="button"
+              className={`tab ${dateMode === "range" ? "active" : ""}`}
+              onClick={() => setDateMode("range")}
+            >
+              Khoảng ngày
+            </button>
+          </div>
+
+          {dateMode === "single" ? (
+            <label className="sort-select">
+              <span className="sort-select-label">Dữ liệu ngày</span>
+              <input
+                type="date"
+                className="date-range-input"
+                value={selectedDate ?? ""}
+                min={earliestAvailableDate ?? undefined}
+                max={latestAvailableDate ?? undefined}
+                onChange={(e) => handleDateChange(e.target.value)}
+              />
+            </label>
+          ) : (
+            <label className="sort-select">
+              <span className="sort-select-label">Từ</span>
+              <input
+                type="date"
+                className="date-range-input"
+                value={rangeStart ?? ""}
+                min={earliestAvailableDate ?? undefined}
+                max={latestAvailableDate ?? undefined}
+                onChange={(e) => handleRangeStartChange(e.target.value)}
+              />
+              <span className="sort-select-label">Đến</span>
+              <input
+                type="date"
+                className="date-range-input"
+                value={rangeEnd ?? ""}
+                min={earliestAvailableDate ?? undefined}
+                max={latestAvailableDate ?? undefined}
+                onChange={(e) => handleRangeEndChange(e.target.value)}
+              />
+            </label>
+          )}
         </div>
       </div>
 
@@ -248,8 +383,9 @@ function PlatformAudienceSection({
                   <tr>
                     <th>{label}</th>
                     <th className="right">Impressions</th>
-                    <th className="right">Reach</th>
                     <th className="right">Clicks</th>
+                    {/* Kiểm tra điều kiện ở Header */}
+                    {platform?.toLowerCase() !== "google" && <th className="right">Reach</th>}
                     <th className="right">CTR</th>
                     <th className="right">Spend</th>
                   </tr>
@@ -259,14 +395,20 @@ function PlatformAudienceSection({
                     <tr key={b.label}>
                       <td>{b.label}</td>
                       <td className="right">{num(b.impressions)}</td>
-                      <td className="right">{num(b.reach)}</td>
                       <td className="right">{num(b.clicks)}</td>
+                      {/* Kiểm tra điều kiện ở Body */}
+                      {platform?.toLowerCase() !== "google" && <td className="right">{num(b.reach)}</td>}
                       <td className="right">{pct(b.ctr)}</td>
                       <td className="right">{vnd(b.spend)}</td>
                     </tr>
                   ))}
                   {pagedRows.length === 0 && (
-                    <tr><td colSpan={6}>Chưa có data audience cho {platform} ở kỳ này.</td></tr>
+                    <tr>
+                      {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
+                      <td colSpan={platform?.toLowerCase() === "google" ? 5 : 6}>
+                        Chưa có data audience cho {platform} ở kỳ này.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -280,7 +422,8 @@ function PlatformAudienceSection({
                     <th>Campaign</th>
                     <th>{label}</th>
                     <th className="right">Impressions</th>
-                    <th className="right">Clicks</th>
+                    {/* Kiểm tra điều kiện ở Header */}
+                    {platform?.toLowerCase() !== "google" && <th className="right">Clicks</th>}
                     <th className="right">CTR</th>
                     <th className="right">Spend</th>
                   </tr>
@@ -291,13 +434,19 @@ function PlatformAudienceSection({
                       <td className="mono">{r.campaignName}</td>
                       <td>{r.breakdownValue}</td>
                       <td className="right">{num(r.impressions)}</td>
-                      <td className="right">{num(r.clicks)}</td>
+                      {/* Kiểm tra điều kiện ở Body */}
+                      {platform?.toLowerCase() !== "google" && <td className="right">{num(r.clicks)}</td>}
                       <td className="right">{pct(r.ctr)}</td>
                       <td className="right">{vnd(r.spend)}</td>
                     </tr>
                   ))}
                   {pagedCampaignRows.length === 0 && (
-                    <tr><td colSpan={6}>Chưa có data campaign cho {platform} ở kỳ này.</td></tr>
+                    <tr>
+                      {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
+                      <td colSpan={platform?.toLowerCase() === "google" ? 5 : 6}>
+                        Chưa có data campaign cho {platform} ở kỳ này.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
