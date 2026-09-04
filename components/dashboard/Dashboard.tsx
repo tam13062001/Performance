@@ -76,7 +76,7 @@ export function Dashboard() {
       <main>
         <header className="topbar">
           <div>
-            <div className="eyebrow">Rocket Performance V8</div>
+            <div className="eyebrow">Rocket Performance</div>
             <h1>{meta.title}</h1>
             <p>{meta.desc}</p>
           </div>
