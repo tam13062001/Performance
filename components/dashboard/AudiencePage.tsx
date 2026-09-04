@@ -16,38 +16,74 @@ import { usePagination } from "./hooks";
 import { DemoPlatformChip, PaginationControls } from "./shared-ui";
 import { demoTabs } from "./constants";
 
-// Ngày dữ liệu chỉ sync 1 lần/ngày (lấy full data của hôm qua), nên không
-// bao giờ cho chọn "hôm nay" — data hôm nay luôn chưa đầy đủ.
-function yesterdayIso(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 2);
-  return d.toISOString().slice(0, 10);
+// Tìm ngày có data gần nhất so với ngày mong muốn (`target`), ưu tiên ngày
+// <= target (data "gần nhất trong quá khứ"); nếu không có ngày nào <= target
+// thì lấy ngày sớm nhất đang có. `dates` phải sort tăng dần.
+function nearestAvailableDate(target: string, dates: string[]): string | null {
+  if (dates.length === 0) return null;
+  let candidate: string | null = null;
+  for (const d of dates) {
+    if (d <= target) candidate = d;
+    else break;
+  }
+  return candidate ?? dates[0];
 }
 
 export function AudiencePage({ projectCode, periodMonth }: { projectCode: string; periodMonth: string }) {
   const [dim, setDim] = useState<"age" | "gender" | "region">("age");
   const [view, setView] = useState<"value" | "campaign">("value");
-  const [rows, setRows] = useState<DemographicRow[]>([]);
+  // Toàn bộ rows của dim hiện tại (KHÔNG lọc theo report_date) — dùng để vừa
+  // suy ra danh sách ngày có data, vừa lọc lại theo selectedDate ở client
+  // mà không cần gọi API lần 2.
+  const [allRows, setAllRows] = useState<DemographicRow[]>([]);
+  const [availableDates, setAvailableDates] = useState<string[]>([]); // ISO date, sort tăng dần
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Ngày dữ liệu breakdown audience — mặc định hôm qua, max cũng chỉ tới
-  // hôm qua (không cho chọn "today" vì data hôm nay chưa full).
-  const maxSelectableDate = useMemo(() => yesterdayIso(), []);
-  const [selectedDate, setSelectedDate] = useState<string>(maxSelectableDate);
+  // null = "chưa xác định" — tự set về ngày mới nhất có data ngay khi tải xong.
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Ngày mới nhất đang thực sự có data — dùng làm mặc định VÀ làm giới hạn
+  // `max` của date picker, thay vì tính cứng "hôm qua" không liên quan gì
+  // đến dữ liệu sync thật.
+  const latestAvailableDate = availableDates.length > 0 ? availableDates[availableDates.length - 1] : null;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    loadDemographics(projectCode, periodMonth, dim, selectedDate)
-      .then((r) => !cancelled && setRows(r))
+    // Lấy toàn bộ data của dim này (không truyền reportDate) để biết chính
+    // xác ngày nào thực sự có data.
+    loadDemographics(projectCode, periodMonth, dim)
+      .then((all) => {
+        if (cancelled) return;
+        const dates = Array.from(
+          new Set(all.map((r) => r.report_date).filter((d): d is string => !!d))
+        ).sort();
+        setAvailableDates(dates);
+        setAllRows(all);
+
+        setSelectedDate((prev) => {
+          // Ngày đang chọn vẫn có data cho dim mới → giữ nguyên.
+          if (prev && dates.includes(prev)) return prev;
+          // Ngược lại, mặc định về ngày mới nhất đang có data.
+          const latest = dates.length > 0 ? dates[dates.length - 1] : null;
+          if (!latest) return prev;
+          return prev ? nearestAvailableDate(prev, dates) ?? latest : latest;
+        });
+      })
       .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [projectCode, periodMonth, dim, selectedDate]);
+  }, [projectCode, periodMonth, dim]);
+
+  // Lọc lại theo ngày đang chọn ngay trên client — không cần fetch lại API.
+  const rows = useMemo(
+    () => (selectedDate ? allRows.filter((r) => r.report_date === selectedDate) : []),
+    [allRows, selectedDate]
+  );
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
   const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
@@ -61,6 +97,16 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
   } = usePagination(campaignBreakdown, 10);
 
   const label = demoTabs.find((t) => t.id === dim)?.label;
+
+  // Người dùng tự chọn 1 ngày trên date picker mà ngày đó không có data →
+  // tự fallback về ngày gần nhất có data thay vì để trắng trang.
+  function handleDateChange(next: string) {
+    if (availableDates.includes(next)) {
+      setSelectedDate(next);
+      return;
+    }
+    setSelectedDate(nearestAvailableDate(next, availableDates) ?? next);
+  }
 
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
@@ -78,9 +124,9 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
           <input
             type="date"
             className="date-range-input"
-            value={selectedDate}
-            max={maxSelectableDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            value={selectedDate ?? ""}
+            max={latestAvailableDate ?? undefined}
+            onChange={(e) => handleDateChange(e.target.value)}
           />
         </label>
       </div>
@@ -90,11 +136,11 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
           <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label}</h3></div></div>
           <div className="chart-wrap large">
             <VolumeBarChart
-                labels={breakdown.map((b) => b.label)}
-                impressions={breakdown.map((b) => b.impressions)}
-                reach={breakdown.map((b) => b.reach)}
-                googleImpressions={breakdown.map((b) => b.googleImpressions)}
-                metaImpressions={breakdown.map((b) => b.metaImpressions)}
+              labels={breakdown.map((b) => b.label)}
+              impressions={breakdown.map((b) => b.impressions)}
+              reach={breakdown.map((b) => b.reach)}
+              googleImpressions={breakdown.map((b) => b.googleImpressions)}
+              metaImpressions={breakdown.map((b) => b.metaImpressions)}
             />
           </div>
         </article>
@@ -102,10 +148,10 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
           <div className="card-head"><div><small>Rate</small><h3>CTR theo {label}</h3></div></div>
           <div className="chart-wrap large">
             <RateLineChart
-            labels={breakdown.map((b) => b.label)}
-            ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
-            googleCtr={breakdown.map((b) => Number(b.googleCtr.toFixed(2)))}
-            metaCtr={breakdown.map((b) => Number(b.metaCtr.toFixed(2)))}
+              labels={breakdown.map((b) => b.label)}
+              ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
+              googleCtr={breakdown.map((b) => Number(b.googleCtr.toFixed(2)))}
+              metaCtr={breakdown.map((b) => Number(b.metaCtr.toFixed(2)))}
             />
           </div>
         </article>
