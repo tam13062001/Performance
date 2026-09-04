@@ -288,7 +288,6 @@ export function VolumeBarChart({
   labels: string[];
   impressions: number[];
   reach?: number[];
-  // + thêm: khi truyền cặp này, chart sẽ tách 2 cột Google/Meta thay vì gộp chung
   googleImpressions?: number[];
   metaImpressions?: number[];
   maxLabelLength?: number;
@@ -303,14 +302,18 @@ export function VolumeBarChart({
         {
           label: "Google Ads",
           data: googleImpressions!,
-          backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.75),
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.85),
           borderRadius: 6,
+          // + thêm: cùng stack "platform" để 2 dataset này chồng lên nhau
+          // theo từng nhóm tuổi thay vì đứng cạnh nhau
+          stack: "platform",
         },
         {
           label: "Meta Ads",
           data: metaImpressions!,
-          backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.75),
+          backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.85),
           borderRadius: 6,
+          stack: "platform",
         },
       ]
     : [
@@ -332,8 +335,11 @@ export function VolumeBarChart({
     ...defaultOptions,
     scales: {
       ...defaultScales,
+      // + thêm: bật stacked cho cả 2 trục khi đang tách theo platform, để
+      // Google/Meta chồng lên nhau thành 1 cột duy nhất mỗi nhóm tuổi
       x: {
         ...defaultScales.x,
+        stacked: splitByPlatform,
         ticks: {
           ...(defaultScales.x?.ticks || {}),
           callback: function (value: any, index: number) {
@@ -342,6 +348,10 @@ export function VolumeBarChart({
             return wrapMultiline(originalLabel, maxLabelLength, maxLabelLines);
           },
         },
+      },
+      y: {
+        ...defaultScales.y,
+        stacked: splitByPlatform,
       },
     },
     plugins: {
@@ -381,66 +391,76 @@ export function RateLineChart({
   labels: string[];
   ctr: number[];
   frequency?: number[];
-  // + thêm: khi truyền cặp này, chart sẽ tách 2 đường CTR Google/Meta
+  // + thêm: khi truyền cặp này, chart sẽ VẼ THÊM 2 đường CTR Google/Meta
+  // bên cạnh đường CTR tổng (ctr) — không còn thay thế đường tổng nữa
   googleCtr?: number[];
   metaCtr?: number[];
   maxLabelLength?: number;
   maxLabelLines?: number;
-  minBarWidth?: number;
 }) {
   const c = useClientTheme();
   const splitByPlatform = !!(googleCtr && metaCtr);
 
-  const datasets: ChartData<"line">["datasets"] = splitByPlatform
-    ? [
-        {
-          label: "CTR Google (%)",
-          data: googleCtr!,
-          borderColor: PLATFORM_COLORS.Google,
-          backgroundColor: hexToRgba(PLATFORM_COLORS.Google, 0.12),
-          fill: true,
+  const datasets: ChartData<"line">["datasets"] = [
+    // Đường CTR tổng — luôn hiện, kể cả khi có breakdown theo platform
+    {
+      label: "CTR tổng (%)",
+      data: ctr,
+      borderColor: seriesColor(c.secondary),
+      backgroundColor: hexToRgba(seriesColor(c.secondary), 0.15),
+      fill: true,
+      tension: 0.4,
+      pointRadius: 4,
+      borderWidth: 2.5, // nổi bật hơn 2 đường theo kênh vì đây là số liệu chính
+      yAxisID: "y",
+    },
+    // Thêm 2 đường theo platform nếu có data — vẽ mảnh hơn, không fill, để
+    // không che mất đường tổng phía trên
+    ...(splitByPlatform
+      ? [
+          {
+            label: "CTR Google (%)",
+            data: googleCtr!,
+            borderColor: PLATFORM_COLORS.Google,
+            backgroundColor: "transparent",
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3,
+            borderWidth: 1.5,
+            borderDash: [4, 3] as [number, number],
+            yAxisID: "y",
+          },
+          {
+            label: "CTR Meta (%)",
+            data: metaCtr!,
+            borderColor: PLATFORM_COLORS.Meta,
+            backgroundColor: "transparent",
+            fill: false,
+            tension: 0.4,
+            pointRadius: 3,
+            borderWidth: 1.5,
+            borderDash: [4, 3] as [number, number],
+            yAxisID: "y",
+          },
+        ]
+      : []),
+    // Frequency (nếu có) vẫn giữ trục phụ như cũ, không đổi
+    ...(frequency
+      ? [{
+          label: "Frequency",
+          data: frequency,
+          borderColor: seriesColor(c.accent),
+          backgroundColor: hexToRgba(seriesColor(c.accent), 0.15),
+          borderDash: [5, 4] as [number, number],
+          fill: false,
           tension: 0.4,
           pointRadius: 4,
-          yAxisID: "y",
-        },
-        {
-          label: "CTR Meta (%)",
-          data: metaCtr!,
-          borderColor: PLATFORM_COLORS.Meta,
-          backgroundColor: hexToRgba(PLATFORM_COLORS.Meta, 0.12),
-          fill: true,
-          tension: 0.4,
-          pointRadius: 4,
-          yAxisID: "y",
-        },
-      ]
-    : [
-        {
-          label: "CTR (%)",
-          data: ctr,
-          borderColor: seriesColor(c.secondary),
-          backgroundColor: hexToRgba(seriesColor(c.secondary), 0.15),
-          fill: true,
-          tension: 0.4,
-          pointRadius: 4,
-          yAxisID: "y",
-        },
-        ...(frequency
-          ? [{
-              label: "Frequency",
-              data: frequency,
-              borderColor: seriesColor(c.accent),
-              backgroundColor: hexToRgba(seriesColor(c.accent), 0.15),
-              borderDash: [5, 4] as [number, number],
-              fill: false,
-              tension: 0.4,
-              pointRadius: 4,
-              yAxisID: "y1",
-            }]
-          : []),
-      ];
+          yAxisID: "y1",
+        }]
+      : []),
+  ];
 
-  const hasSecondaryAxis = !!frequency && !splitByPlatform;
+  const hasSecondaryAxis = !!frequency;
   const baseScales = hasSecondaryAxis
     ? {
         x: xAxis(),
@@ -471,7 +491,7 @@ export function RateLineChart({
     ...bOptions,
     plugins: {
       ...bOptions.plugins,
-      // Hiện legend khi có nhiều hơn 1 series (frequency hoặc tách platform)
+      // Hiện legend khi có nhiều hơn 1 series (frequency hoặc breakdown platform)
       legend: { display: !!frequency || splitByPlatform },
       tooltip: {
         ...(bOptions.plugins?.tooltip || {}),

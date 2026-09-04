@@ -731,10 +731,23 @@ export type DemographicBreakdown = {
   metaCtr: number;
 };
 
+// Chuẩn hoá breakdown_value trước khi group — các platform có thể trả về
+// cùng 1 giá trị nhưng khác định dạng (vd Google "25-34" vs Meta "25 - 34",
+// hoặc "unknown"/"Unknown" khác hoa thường), khiến chúng bị tách thành 2
+// nhóm riêng thay vì gộp làm 1. Chuẩn hoá về đúng 1 dạng hiển thị thống nhất.
+function canonicalizeBreakdownValue(raw: string): string {
+  let v = (raw ?? "").trim();
+  // "25 - 34" / "25  -  34" -> "25-34"
+  v = v.replace(/\s*-\s*/g, "-");
+  v = v.replace(/\s+/g, " ");
+  if (v.toLowerCase() === "unknown" || v === "") return "Unknown";
+  return v;
+}
+
 export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {
   const map = new Map<string, DemographicBreakdown>();
   for (const r of rows) {
-    const key = r.breakdown_value;
+    const key = canonicalizeBreakdownValue(r.breakdown_value);
     const item =
       map.get(key) ??
       ({
@@ -792,12 +805,13 @@ export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): Ca
   const map = new Map<string, CampaignBreakdownRow>();
   for (const r of rows) {
     const campaignName = r.campaign_name ?? "Unknown";
-    const key = `${campaignName}::${r.breakdown_value}::${r.platform}`;
+    const breakdownValue = canonicalizeBreakdownValue(r.breakdown_value);
+    const key = `${campaignName}::${breakdownValue}::${r.platform}`;
     const item =
       map.get(key) ??
       ({
         campaignName,
-        breakdownValue: r.breakdown_value,
+        breakdownValue,
         platform: r.platform,
         impressions: 0,
         reach: 0,
