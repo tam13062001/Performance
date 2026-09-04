@@ -753,11 +753,9 @@ td.mono {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 22px;
-}
-.grid-2.two-thirds {
   grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
 }
 
 .mt-2 {
