@@ -20,7 +20,7 @@ import { useChannelRawData, usePagination } from "./hooks";
 import { currentMonthAbbrClient } from "./utils";
 import { NotAvailableNotice, PaginationControls } from "./shared-ui";
 import { demoTabs } from "./constants";
-
+import { VolumeRateComboChart } from "@/components/dashboard/ComboVolumeRateChart"; // sửa path cho đúng dự án bạn
 type DateFilterMode = "single" | "range";
 
 // Tìm ngày có data gần nhất so với ngày mong muốn (`target`), ưu tiên ngày
@@ -539,7 +539,27 @@ function PlatformAudienceSection({
           )}
         </div>
       </div>
-
+<article className="card">
+  <div className="card-head">
+    <div>
+      <small>Volume + Rate</small>
+      <h3>Impressions & CTR theo {label} · {platform}</h3>
+    </div>
+  </div>
+  <div className="chart-wrap large">
+    <VolumeRateComboChart
+      labels={breakdown.map((b) => b.label)}
+      impressions={breakdown.map((b) => b.impressions)}
+      secondary={
+        platform?.toLowerCase() === "google"
+          ? breakdown.map((b) => b.clicks)
+          : breakdown.map((b) => b.reach)
+      }
+      secondaryLabel={platform?.toLowerCase() === "google" ? "Clicks" : "Reach"}
+      ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
+    />
+  </div>
+</article>
       <div className="grid-2 two-thirds">
         <article className="card">
           <div className="card-head">
@@ -582,7 +602,7 @@ function PlatformAudienceSection({
           </div>
         </article>
       </div>
-
+      
       <article className="card">
         <div className="card-head">
           <div>
