@@ -2750,9 +2750,7 @@ tbody tr:hover {
 }
 
 /* Tùy chỉnh thanh cuộn cho đồng bộ theme tối */
-.alerts::-webkit-scrollbar {
-  width: 6px;
-}
+
 .alerts::-webkit-scrollbar-track {
   background: transparent;
 }
@@ -3538,9 +3536,7 @@ tbody tr:hover {
   scrollbar-color: #3a4c6d transparent;
 }
 
-.table-wrap::-webkit-scrollbar {
-  height: 6px;
-}
+
 
 .table-wrap::-webkit-scrollbar-track {
   background: transparent;
@@ -3558,4 +3554,24 @@ tbody tr:hover {
   padding-top: 20px;
   text-align: center;
   color: gray;
+}
+
+/* ============================================================
+   Ẩn thanh cuộn toàn bộ trang — vẫn cuộn được bình thường,
+   chỉ ẩn phần thanh trượt hiển thị (scrollbar) đi.
+   ============================================================ */
+
+/* Áp dụng cho MỌI phần tử có thể cuộn trong toàn bộ app */
+* {
+  /* Firefox */
+  scrollbar-width: none;
+  /* IE / Edge cũ */
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  /* Chrome, Safari, Edge (Chromium) */
+  display: none;
+  width: 0;
+  height: 0;
 }
