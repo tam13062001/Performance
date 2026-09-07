@@ -655,6 +655,56 @@ function aggregateBy(rows: ExecutionRow[], key: (r: ExecutionRow) => string): Ex
     .sort((a, b) => b.impressions - a.impressions);
 }
 
+// ---------- Ad Group rows cho Google (lấy từ ad_demographic_metrics, breakdown_type='campaign') ----------
+export type AdGroupRow = {
+  id: string;
+  name: string;
+  campaignName: string | null;
+  impressions: number;
+  clicks: number;
+  reach: number | null;
+  spend: number;
+  ctr: number;
+};
+
+export async function loadAdGroupRows(
+  projectCode: string,
+  periodMonth: string,
+  platform: "Google" | "Meta"
+): Promise<AdGroupRow[]> {
+  const platformKey = platform === "Google" ? "google" : "meta";
+  const rows = await loadDemographics(projectCode, periodMonth, "campaign");
+  const filtered = rows.filter((r) => r.platform === platformKey);
+
+  const map = new Map<string, AdGroupRow>();
+  for (const r of filtered) {
+    const key = r.breakdown_value;
+    const item =
+      map.get(key) ??
+      ({
+        id: key,
+        name: key,
+        campaignName: r.campaign_name,
+        impressions: 0,
+        clicks: 0,
+        reach: r.reach !== null ? 0 : null,
+        spend: 0,
+        ctr: 0,
+      } as AdGroupRow);
+
+    item.impressions += r.impressions || 0;
+    item.clicks += r.clicks || 0;
+    item.spend += r.spend || 0;
+    if (r.reach !== null) item.reach = (item.reach ?? 0) + (r.reach ?? 0);
+
+    map.set(key, item);
+  }
+
+  return [...map.values()]
+    .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
+    .sort((a, b) => b.impressions - a.impressions);
+}
+
 export async function loadExecutionRows(
   projectCode: string,
   platform: "Google" | "Meta",
@@ -785,6 +835,18 @@ function regionAliasKey(s: string): string {
   return stripDiacritics(s.trim().toLowerCase()).replace(/\s+/g, " ");
 }
 
+const AGE_ORDER = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+", "Unknown"];
+const GENDER_ORDER = ["Female", "Male", "Unknown"];
+
+// Trả về vị trí sắp xếp cố định cho age/gender; các breakdown_type khác
+// (region, device, keyword…) trả về null để giữ nguyên sort theo impressions.
+function fixedSortIndex(breakdownType: DemographicRow["breakdown_type"] | undefined, label: string): number | null {
+  const order = breakdownType === "age" ? AGE_ORDER : breakdownType === "gender" ? GENDER_ORDER : null;
+  if (!order) return null;
+  const idx = order.indexOf(label);
+  return idx === -1 ? order.length : idx; // giá trị lạ chưa có trong bảng -> xếp cuối
+}
+
 // Chuẩn hoá breakdown_value trước khi group — các platform có thể trả về
 // cùng 1 giá trị nhưng khác định dạng:
 //   - khác spacing quanh dấu gạch: "25-34" (Google) vs "25 - 34" (Meta)
@@ -825,6 +887,7 @@ function canonicalizeBreakdownValue(raw: string, breakdownType?: DemographicRow[
 
 export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdown[] {
   const map = new Map<string, DemographicBreakdown>();
+  const breakdownType = rows[0]?.breakdown_type;
   for (const r of rows) {
     const key = canonicalizeBreakdownValue(r.breakdown_value, r.breakdown_type);
     const item =
@@ -865,7 +928,12 @@ export function aggregateDemographic(rows: DemographicRow[]): DemographicBreakdo
       googleCtr: ctrOf(i.googleImpressions, i.googleClicks),
       metaCtr: ctrOf(i.metaImpressions, i.metaClicks),
     }))
-    .sort((a, b) => b.impressions - a.impressions);
+        .sort((a, b) => {
+      const fa = fixedSortIndex(breakdownType, a.label);
+      const fb = fixedSortIndex(breakdownType, b.label);
+      if (fa !== null && fb !== null) return fa - fb;
+      return b.impressions - a.impressions;
+    });
 }
 
 // ---------- Demographic breakdown theo Campaign + Age/Gender/Region ----------
@@ -882,6 +950,7 @@ export type CampaignBreakdownRow = {
 
 export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): CampaignBreakdownRow[] {
   const map = new Map<string, CampaignBreakdownRow>();
+  const breakdownType = rows[0]?.breakdown_type;
   for (const r of rows) {
     const campaignName = r.campaign_name ?? "Unknown";
     const breakdownValue = canonicalizeBreakdownValue(r.breakdown_value, r.breakdown_type);
@@ -908,7 +977,14 @@ export function aggregateDemographicByCampaignDetail(rows: DemographicRow[]): Ca
   }
   return [...map.values()]
     .map((i) => ({ ...i, ctr: ctrOf(i.impressions, i.clicks) }))
-    .sort((a, b) => a.campaignName.localeCompare(b.campaignName) || b.impressions - a.impressions);
+    .sort((a, b) => {
+      const nameCompare = a.campaignName.localeCompare(b.campaignName);
+      if (nameCompare !== 0) return nameCompare;
+      const fa = fixedSortIndex(breakdownType, a.breakdownValue);
+      const fb = fixedSortIndex(breakdownType, b.breakdownValue);
+      if (fa !== null && fb !== null) return fa - fb;
+      return b.impressions - a.impressions;
+    });
 }
 
 export type AlertRow = {

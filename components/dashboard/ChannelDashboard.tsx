@@ -7,6 +7,7 @@ import {
   pct,
   vnd,
   loadExecutionRows,
+  loadAdGroupRows,
   channelKpis,
   loadDemographics,
   aggregateDemographic,
@@ -40,10 +41,12 @@ function ExecutionSection({
   projectCode,
   platform,
   level,
+  periodMonth,
 }: {
   projectCode: string;
   platform: "Google" | "Meta";
   level: "campaign" | "adgroup";
+  periodMonth: string;
 }) {
   const [rows, setRows] = useState<
     Awaited<ReturnType<typeof loadExecutionRows>>
@@ -60,14 +63,41 @@ function ExecutionSection({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    loadExecutionRows(projectCode, platform, level)
+
+    // Ad Group của Google không có trong ad_raw_sem_data (chưa được sync),
+    // nên lấy từ ad_demographic_metrics (breakdown_type='campaign') thay thế
+    // — breakdown_value ở đó chính là tên ad group.
+    const isGoogleAdGroup = platform === "Google" && level === "adgroup";
+
+    const fetchPromise = isGoogleAdGroup
+      ? loadAdGroupRows(projectCode, periodMonth, platform).then((ag) =>
+          ag.map((a) => ({
+            id: a.id,
+            name: a.name,
+            adGroup: null,
+            impressions: a.impressions,
+            reach: a.reach,
+            engagements: 0,
+            views: 0,
+            clicks: a.clicks,
+            linkClicks: 0,
+            landingPageViews: 0,
+            leads: 0,
+            spend: a.spend,
+            ctr: a.ctr,
+            er: 0,
+          })),
+        )
+      : loadExecutionRows(projectCode, platform, level);
+
+    fetchPromise
       .then((r) => !cancelled && setRows(r))
       .catch(console.error)
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [projectCode, platform, level]);
+  }, [projectCode, platform, level, periodMonth]);
 
   if (loading)
     return (
@@ -101,8 +131,8 @@ function ExecutionSection({
         <article className="card">
           <div className="card-head">
             <div>
-              <small>Delivery volume</small>
-              <h3>Impressions{secondaryLabel}</h3>
+              <small>Delivery volume & Efficiency</small>
+              <h3>Impressions{secondaryLabel} & CTR</h3>
             </div>
           </div>
           <div className="chart-wrap large">
@@ -111,20 +141,6 @@ function ExecutionSection({
               impressions={rows.map((r) => r.impressions)}
               reach={secondarySeries}
               secondaryLabel={isGoogle ? "Clicks" : "Reach"}
-            />
-          </div>
-        </article>
-
-        <article className="card mt-2">
-          <div className="card-head">
-            <div>
-              <small>Efficiency</small>
-              <h3>CTR</h3>
-            </div>
-          </div>
-          <div className="chart-wrap large">
-            <RateLineChart
-              labels={rows.map((r) => r.name)}
               ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
             />
           </div>
@@ -271,6 +287,7 @@ export function ChannelDashboard({
             projectCode={projectCode}
             platform={platform as "Google" | "Meta"}
             level={level as "campaign" | "adgroup"}
+            periodMonth={periodMonth}
           />
         ))}
       {level === "audience" && (
@@ -890,6 +907,7 @@ function KeywordsSection({
           <VolumeBarChart
             labels={breakdown.slice(0, 15).map((b) => b.label)}
             impressions={breakdown.slice(0, 15).map((b) => b.impressions)}
+            ctr={breakdown.slice(0, 15).map((b) => Number(b.ctr.toFixed(2)))}
           />
         </div>
       </article>
