@@ -36,11 +36,26 @@ function nearestAvailableDate(target: string, dates: string[]): string | null {
 }
 
 /* ---------------- Channel dashboards ---------------- */
-function ExecutionSection({ projectCode, platform, level }: { projectCode: string; platform: "Google" | "Meta"; level: "campaign" | "adgroup" }) {
-  const [rows, setRows] = useState<Awaited<ReturnType<typeof loadExecutionRows>>>([]);
+function ExecutionSection({
+  projectCode,
+  platform,
+  level,
+}: {
+  projectCode: string;
+  platform: "Google" | "Meta";
+  level: "campaign" | "adgroup";
+}) {
+  const [rows, setRows] = useState<
+    Awaited<ReturnType<typeof loadExecutionRows>>
+  >([]);
   const [loading, setLoading] = useState(true);
 
-  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(rows, 10);
+  const {
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    currentData: pagedRows,
+  } = usePagination(rows, 10);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,31 +69,59 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
     };
   }, [projectCode, platform, level]);
 
-  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
+  if (loading)
+    return (
+      <div className="notice">
+        <Info size={18} />
+        <div>
+          <b>Đang tải dữ liệu…</b>
+        </div>
+      </div>
+    );
 
-  const showReach = rows.some((r) => r.reach !== null);
+  const isGoogle = platform === "Google";
+  const showReach = !isGoogle && rows.some((r) => r.reach !== null);
+  const secondarySeries = isGoogle
+    ? rows.map((r) => r.clicks)
+    : showReach
+      ? rows.map((r) => r.reach ?? 0)
+      : undefined;
+  const secondaryLabel = isGoogle ? " & Clicks" : showReach ? " & Reach" : "";
 
   const TRUNCATE_LENGTH = 4;
   const truncateLabel = (name: string) => {
-    return name.length > TRUNCATE_LENGTH ? name.substring(0, TRUNCATE_LENGTH) + "…" : name;
+    return name.length > TRUNCATE_LENGTH
+      ? name.substring(0, TRUNCATE_LENGTH) + "…"
+      : name;
   };
 
   return (
     <>
       <div className=" two-thirds">
         <article className="card">
-          <div className="card-head"><div><small>Delivery volume</small><h3>Impressions{showReach ? " & Reach" : ""}</h3></div></div>
+          <div className="card-head">
+            <div>
+              <small>Delivery volume</small>
+              <h3>Impressions{secondaryLabel}</h3>
+            </div>
+          </div>
           <div className="chart-wrap large">
             <VolumeBarChart
               labels={rows.map((r) => r.name)}
               impressions={rows.map((r) => r.impressions)}
-              reach={showReach ? rows.map((r) => r.reach ?? 0) : undefined}
+              reach={secondarySeries}
+              secondaryLabel={isGoogle ? "Clicks" : "Reach"}
             />
           </div>
         </article>
 
         <article className="card mt-2">
-          <div className="card-head"><div><small>Efficiency</small><h3>CTR</h3></div></div>
+          <div className="card-head">
+            <div>
+              <small>Efficiency</small>
+              <h3>CTR</h3>
+            </div>
+          </div>
           <div className="chart-wrap large">
             <RateLineChart
               labels={rows.map((r) => r.name)}
@@ -91,13 +134,28 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
       <article className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Tên</th><th className="right">Impressions</th><th className="right">Reach</th><th className="right">Clicks</th><th className="right">Engagements</th><th className="right">CTR</th><th className="right">ER</th><th className="right">Spend</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Tên</th>
+                <th className="right">Impressions</th>
+                <th className="right">Reach</th>
+                <th className="right">Clicks</th>
+                <th className="right">Engagements</th>
+                <th className="right">CTR</th>
+                <th className="right">ER</th>
+                <th className="right">Spend</th>
+              </tr>
+            </thead>
             <tbody>
               {pagedRows.map((r) => (
                 <tr key={r.id}>
-                  <td className="mono" title={r.name}>{r.name}</td>
+                  <td className="mono" title={r.name}>
+                    {r.name}
+                  </td>
                   <td className="right">{num(r.impressions)}</td>
-                  <td className="right">{r.reach !== null ? num(r.reach) : "—"}</td>
+                  <td className="right">
+                    {r.reach !== null ? num(r.reach) : "—"}
+                  </td>
                   <td className="right">{num(r.clicks)}</td>
                   <td className="right">{num(r.engagements)}</td>
                   <td className="right">{pct(r.ctr)}</td>
@@ -105,38 +163,75 @@ function ExecutionSection({ projectCode, platform, level }: { projectCode: strin
                   <td className="right">{vnd(r.spend)}</td>
                 </tr>
               ))}
-              {pagedRows.length === 0 && <tr><td colSpan={8}>Chưa có data.</td></tr>}
+              {pagedRows.length === 0 && (
+                <tr>
+                  <td colSpan={8}>Chưa có data.</td>
+                </tr>
+              )}
             </tbody>
           </table>
-          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </div>
       </article>
     </>
   );
 }
 
-export function ChannelDashboard({ projectCode, platform, periodMonth, planView }: { projectCode: string; platform: "Google" | "Meta" | "Youtube"; periodMonth: string; planView: "MTD" | "YTD" }) {
+export function ChannelDashboard({
+  projectCode,
+  platform,
+  periodMonth,
+  planView,
+}: {
+  projectCode: string;
+  platform: "Google" | "Meta" | "Youtube";
+  periodMonth: string;
+  planView: "MTD" | "YTD";
+}) {
   const isGoogle = platform === "Google";
   const isYoutube = platform === "Youtube";
   const levels = [
     { id: "campaign", label: "Campaign" },
     { id: "adgroup", label: isGoogle || isYoutube ? "Ad Group" : "Ad Set" },
     { id: "audience", label: "Audience" },
-    { id: isGoogle ? "keywords" : "creative", label: isGoogle ? "Keywords" : "Creative" },
+    {
+      id: isGoogle ? "keywords" : "creative",
+      label: isGoogle ? "Keywords" : "Creative",
+    },
   ];
   const [level, setLevel] = useState<string>("campaign");
 
-  const { rows: channelRows, loading } = useChannelRawData(projectCode, platform);
-  const kpis = useMemo(() => channelKpis(platform, channelRows), [platform, channelRows]);
+  const { rows: channelRows, loading } = useChannelRawData(
+    projectCode,
+    platform,
+  );
+  const kpis = useMemo(
+    () => channelKpis(platform, channelRows),
+    [platform, channelRows],
+  );
 
   const bannerClass = isGoogle ? "google" : isYoutube ? "youtube" : "meta";
-  const bannerIcon = isGoogle ? <Search size={40} /> : isYoutube ? <SquarePlay size={40} /> : <Share2 size={40} />;
-  const bannerTitle = isGoogle ? "Google Ads" : isYoutube ? "YouTube Ads" : "Meta Ads";
+  const bannerIcon = isGoogle ? (
+    <Search size={40} />
+  ) : isYoutube ? (
+    <SquarePlay size={40} />
+  ) : (
+    <Share2 size={40} />
+  );
+  const bannerTitle = isGoogle
+    ? "Google Ads"
+    : isYoutube
+      ? "YouTube Ads"
+      : "Meta Ads";
   const bannerDesc = isGoogle
     ? "Campaign, Ad Group Performance (SEM)."
     : isYoutube
-    ? "Campaign, Ad Group Performance (Video)."
-    : "Campaign, Ad Set Performance (Facebook).";
+      ? "Campaign, Ad Group Performance (Video)."
+      : "Campaign, Ad Set Performance (Facebook).";
 
   return (
     <>
@@ -154,23 +249,43 @@ export function ChannelDashboard({ projectCode, platform, periodMonth, planView 
       <div className="page-toolbar">
         <div className="tabs">
           {levels.map((l) => (
-            <button key={l.id} type="button" className={`tab ${level === l.id ? "active" : ""}`} onClick={() => setLevel(l.id)}>{l.label}</button>
+            <button
+              key={l.id}
+              type="button"
+              className={`tab ${level === l.id ? "active" : ""}`}
+              onClick={() => setLevel(l.id)}
+            >
+              {l.label}
+            </button>
           ))}
         </div>
       </div>
 
-      {(level === "campaign" || level === "adgroup") && (
-        isYoutube ? (
-          <NotAvailableNotice what={`${level === "campaign" ? "Campaign" : "Ad Group"} performance cho YouTube`} />
+      {(level === "campaign" || level === "adgroup") &&
+        (isYoutube ? (
+          <NotAvailableNotice
+            what={`${level === "campaign" ? "Campaign" : "Ad Group"} performance cho YouTube`}
+          />
         ) : (
-          <ExecutionSection projectCode={projectCode} platform={platform as "Google" | "Meta"} level={level as "campaign" | "adgroup"} />
-        )
-      )}
+          <ExecutionSection
+            projectCode={projectCode}
+            platform={platform as "Google" | "Meta"}
+            level={level as "campaign" | "adgroup"}
+          />
+        ))}
       {level === "audience" && (
-        <PlatformAudienceSection projectCode={projectCode} periodMonth={periodMonth} platform={platform} />
+        <PlatformAudienceSection
+          projectCode={projectCode}
+          periodMonth={periodMonth}
+          platform={platform}
+        />
       )}
-      {level === "keywords" && isGoogle && <KeywordsSection projectCode={projectCode} />}
-      {level === "creative" && <NotAvailableNotice what="Creative type breakdown" />}
+      {level === "keywords" && isGoogle && (
+        <KeywordsSection projectCode={projectCode} periodMonth={periodMonth} />
+      )}
+      {level === "creative" && (
+        <NotAvailableNotice what="Creative type breakdown" />
+      )}
     </>
   );
 }
@@ -203,10 +318,19 @@ function PlatformAudienceSection({
   const [rangeStart, setRangeStart] = useState<string | null>(null);
   const [rangeEnd, setRangeEnd] = useState<string | null>(null);
 
-  const latestAvailableDate = availableDates.length > 0 ? availableDates[availableDates.length - 1] : null;
-  const earliestAvailableDate = availableDates.length > 0 ? availableDates[0] : null;
+  const latestAvailableDate =
+    availableDates.length > 0
+      ? availableDates[availableDates.length - 1]
+      : null;
+  const earliestAvailableDate =
+    availableDates.length > 0 ? availableDates[0] : null;
 
-  const platformKey = platform === "Google" ? "google" : platform === "Youtube" ? "youtube" : "meta";
+  const platformKey =
+    platform === "Google"
+      ? "google"
+      : platform === "Youtube"
+        ? "youtube"
+        : "meta";
 
   useEffect(() => {
     let cancelled = false;
@@ -217,7 +341,9 @@ function PlatformAudienceSection({
         if (cancelled) return;
         const filtered = r.filter((x) => x.platform === platformKey);
         const dates = Array.from(
-          new Set(filtered.map((x) => x.report_date).filter((d): d is string => !!d))
+          new Set(
+            filtered.map((x) => x.report_date).filter((d): d is string => !!d),
+          ),
         ).sort();
         setAvailableDates(dates);
         setAllRows(filtered);
@@ -226,12 +352,14 @@ function PlatformAudienceSection({
           if (prev && dates.includes(prev)) return prev;
           const latest = dates.length > 0 ? dates[dates.length - 1] : null;
           if (!latest) return prev;
-          return prev ? nearestAvailableDate(prev, dates) ?? latest : latest;
+          return prev ? (nearestAvailableDate(prev, dates) ?? latest) : latest;
         });
 
         const earliest = dates.length > 0 ? dates[0] : null;
         const latest = dates.length > 0 ? dates[dates.length - 1] : null;
-        setRangeStart((prev) => (prev && dates.includes(prev) ? prev : earliest));
+        setRangeStart((prev) =>
+          prev && dates.includes(prev) ? prev : earliest,
+        );
         setRangeEnd((prev) => (prev && dates.includes(prev) ? prev : latest));
       })
       .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
@@ -246,16 +374,31 @@ function PlatformAudienceSection({
   const rows = useMemo(() => {
     if (dateMode === "range") {
       if (!rangeStart || !rangeEnd) return [];
-      const [from, to] = rangeStart <= rangeEnd ? [rangeStart, rangeEnd] : [rangeEnd, rangeStart];
-      return allRows.filter((r) => !!r.report_date && r.report_date >= from && r.report_date <= to);
+      const [from, to] =
+        rangeStart <= rangeEnd
+          ? [rangeStart, rangeEnd]
+          : [rangeEnd, rangeStart];
+      return allRows.filter(
+        (r) => !!r.report_date && r.report_date >= from && r.report_date <= to,
+      );
     }
-    return selectedDate ? allRows.filter((r) => r.report_date === selectedDate) : [];
+    return selectedDate
+      ? allRows.filter((r) => r.report_date === selectedDate)
+      : [];
   }, [allRows, selectedDate, dateMode, rangeStart, rangeEnd]);
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
-  const campaignBreakdown = useMemo(() => aggregateDemographicByCampaignDetail(rows), [rows]);
+  const campaignBreakdown = useMemo(
+    () => aggregateDemographicByCampaignDetail(rows),
+    [rows],
+  );
 
-  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const {
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    currentData: pagedRows,
+  } = usePagination(breakdown, 10);
   const {
     currentPage: campPage,
     setCurrentPage: setCampPage,
@@ -276,24 +419,52 @@ function PlatformAudienceSection({
   }
 
   function handleRangeStartChange(next: string) {
-    const resolved = availableDates.includes(next) ? next : nearestAvailableDate(next, availableDates) ?? next;
+    const resolved = availableDates.includes(next)
+      ? next
+      : (nearestAvailableDate(next, availableDates) ?? next);
     setRangeStart(resolved);
   }
 
   function handleRangeEndChange(next: string) {
-    const resolved = availableDates.includes(next) ? next : nearestAvailableDate(next, availableDates) ?? next;
+    const resolved = availableDates.includes(next)
+      ? next
+      : (nearestAvailableDate(next, availableDates) ?? next);
     setRangeEnd(resolved);
   }
 
-  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
-  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+  if (loading)
+    return (
+      <div className="notice">
+        <Info size={18} />
+        <div>
+          <b>Đang tải dữ liệu…</b>
+        </div>
+      </div>
+    );
+  if (error)
+    return (
+      <div className="notice">
+        <Info size={18} />
+        <div>
+          <b>Lỗi tải dữ liệu</b>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
 
   return (
     <>
       <div className="page-toolbar">
         <div className="tabs">
           {demoTabs.map((t) => (
-            <button key={t.id} type="button" className={`tab ${dim === t.id ? "active" : ""}`} onClick={() => setDim(t.id)}>{t.label}</button>
+            <button
+              key={t.id}
+              type="button"
+              className={`tab ${dim === t.id ? "active" : ""}`}
+              onClick={() => setDim(t.id)}
+            >
+              {t.label}
+            </button>
           ))}
         </div>
 
@@ -354,25 +525,70 @@ function PlatformAudienceSection({
 
       <div className="grid-2 two-thirds">
         <article className="card">
-          <div className="card-head"><div><small>Volume</small><h3>Impressions theo {label} · {platform}</h3></div></div>
+          <div className="card-head">
+            <div>
+              <small>Volume</small>
+              <h3>
+                Impressions theo {label} · {platform}
+              </h3>
+            </div>
+          </div>
           <div className="chart-wrap large">
-            <VolumeBarChart labels={breakdown.map((b) => b.label)} impressions={breakdown.map((b) => b.impressions)} reach={breakdown.map((b) => b.reach)} />
+            <VolumeBarChart
+              labels={breakdown.map((b) => b.label)}
+              impressions={breakdown.map((b) => b.impressions)}
+              reach={
+                platform?.toLowerCase() === "google"
+                  ? breakdown.map((b) => b.clicks)
+                  : breakdown.map((b) => b.reach)
+              }
+              secondaryLabel={
+                platform?.toLowerCase() === "google" ? "Clicks" : "Reach"
+              }
+            />
           </div>
         </article>
         <article className="card">
-          <div className="card-head"><div><small>Rate</small><h3>CTR theo {label} · {platform}</h3></div></div>
+          <div className="card-head">
+            <div>
+              <small>Rate</small>
+              <h3>
+                CTR theo {label} · {platform}
+              </h3>
+            </div>
+          </div>
           <div className="chart-wrap large">
-            <RateLineChart labels={breakdown.map((b) => b.label)} ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))} />
+            <RateLineChart
+              labels={breakdown.map((b) => b.label)}
+              ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
+            />
           </div>
         </article>
       </div>
 
       <article className="card">
         <div className="card-head">
-          <div><small>Bảng chi tiết</small><h3>Theo {label} · {platform}</h3></div>
+          <div>
+            <small>Bảng chi tiết</small>
+            <h3>
+              Theo {label} · {platform}
+            </h3>
+          </div>
           <div className="tabs" style={{ gap: 4 }}>
-            <button type="button" className={`tab ${view === "value" ? "active" : ""}`} onClick={() => setView("value")}>Theo {label}</button>
-            <button type="button" className={`tab ${view === "campaign" ? "active" : ""}`} onClick={() => setView("campaign")}>Theo Campaign</button>
+            <button
+              type="button"
+              className={`tab ${view === "value" ? "active" : ""}`}
+              onClick={() => setView("value")}
+            >
+              Theo {label}
+            </button>
+            <button
+              type="button"
+              className={`tab ${view === "campaign" ? "active" : ""}`}
+              onClick={() => setView("campaign")}
+            >
+              Theo Campaign
+            </button>
           </div>
         </div>
         <div className="table-wrap">
@@ -385,7 +601,9 @@ function PlatformAudienceSection({
                     <th className="right">Impressions</th>
                     <th className="right">Clicks</th>
                     {/* Kiểm tra điều kiện ở Header */}
-                    {platform?.toLowerCase() !== "google" && <th className="right">Reach</th>}
+                    {platform?.toLowerCase() !== "google" && (
+                      <th className="right">Reach</th>
+                    )}
                     <th className="right">CTR</th>
                     <th className="right">Spend</th>
                   </tr>
@@ -397,7 +615,9 @@ function PlatformAudienceSection({
                       <td className="right">{num(b.impressions)}</td>
                       <td className="right">{num(b.clicks)}</td>
                       {/* Kiểm tra điều kiện ở Body */}
-                      {platform?.toLowerCase() !== "google" && <td className="right">{num(b.reach)}</td>}
+                      {platform?.toLowerCase() !== "google" && (
+                        <td className="right">{num(b.reach)}</td>
+                      )}
                       <td className="right">{pct(b.ctr)}</td>
                       <td className="right">{vnd(b.spend)}</td>
                     </tr>
@@ -405,14 +625,20 @@ function PlatformAudienceSection({
                   {pagedRows.length === 0 && (
                     <tr>
                       {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
-                      <td colSpan={platform?.toLowerCase() === "google" ? 5 : 6}>
+                      <td
+                        colSpan={platform?.toLowerCase() === "google" ? 5 : 6}
+                      >
                         Chưa có data audience cho {platform} ở kỳ này.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-              <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+              <PaginationControls
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
             </>
           ) : (
             <>
@@ -423,7 +649,9 @@ function PlatformAudienceSection({
                     <th>{label}</th>
                     <th className="right">Impressions</th>
                     {/* Kiểm tra điều kiện ở Header */}
-                    {platform?.toLowerCase() !== "google" && <th className="right">Clicks</th>}
+                    {platform?.toLowerCase() !== "google" && (
+                      <th className="right">Clicks</th>
+                    )}
                     <th className="right">CTR</th>
                     <th className="right">Spend</th>
                   </tr>
@@ -435,7 +663,9 @@ function PlatformAudienceSection({
                       <td>{r.breakdownValue}</td>
                       <td className="right">{num(r.impressions)}</td>
                       {/* Kiểm tra điều kiện ở Body */}
-                      {platform?.toLowerCase() !== "google" && <td className="right">{num(r.clicks)}</td>}
+                      {platform?.toLowerCase() !== "google" && (
+                        <td className="right">{num(r.clicks)}</td>
+                      )}
                       <td className="right">{pct(r.ctr)}</td>
                       <td className="right">{vnd(r.spend)}</td>
                     </tr>
@@ -443,14 +673,20 @@ function PlatformAudienceSection({
                   {pagedCampaignRows.length === 0 && (
                     <tr>
                       {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
-                      <td colSpan={platform?.toLowerCase() === "google" ? 5 : 6}>
+                      <td
+                        colSpan={platform?.toLowerCase() === "google" ? 5 : 6}
+                      >
                         Chưa có data campaign cho {platform} ở kỳ này.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
-              <PaginationControls currentPage={campPage} totalPages={campTotalPages} onPageChange={setCampPage} />
+              <PaginationControls
+                currentPage={campPage}
+                totalPages={campTotalPages}
+                onPageChange={setCampPage}
+              />
             </>
           )}
         </div>
@@ -460,36 +696,201 @@ function PlatformAudienceSection({
 }
 
 /* ---------------- Keywords (Google only, breakdown_type='keyword') ---------------- */
-function KeywordsSection({ projectCode }: { projectCode: string }) {
-  const [rows, setRows] = useState<DemographicRow[]>([]);
+function KeywordsSection({
+  projectCode,
+  periodMonth,
+}: {
+  projectCode: string;
+  periodMonth: string;
+}) {
+  const [allRows, setAllRows] = useState<DemographicRow[]>([]);
+  const [availableDates, setAvailableDates] = useState<string[]>([]); // ISO date, sort tăng dần
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [dateMode, setDateMode] = useState<DateFilterMode>("single");
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [rangeStart, setRangeStart] = useState<string | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<string | null>(null);
+
+  const latestAvailableDate =
+    availableDates.length > 0
+      ? availableDates[availableDates.length - 1]
+      : null;
+  const earliestAvailableDate =
+    availableDates.length > 0 ? availableDates[0] : null;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    loadDemographics(projectCode, currentMonthAbbrClient(), "keyword")
-      .then((r) => !cancelled && setRows(r.filter((x) => x.platform === "google")))
+    loadDemographics(projectCode, periodMonth, "keyword")
+      .then((r) => {
+        if (cancelled) return;
+        const filtered = r.filter((x) => x.platform === "google");
+        const dates = Array.from(
+          new Set(
+            filtered.map((x) => x.report_date).filter((d): d is string => !!d),
+          ),
+        ).sort();
+        setAvailableDates(dates);
+        setAllRows(filtered);
+
+        setSelectedDate((prev) => {
+          if (prev && dates.includes(prev)) return prev;
+          const latest = dates.length > 0 ? dates[dates.length - 1] : null;
+          if (!latest) return prev;
+          return prev ? (nearestAvailableDate(prev, dates) ?? latest) : latest;
+        });
+
+        const earliest = dates.length > 0 ? dates[0] : null;
+        const latest = dates.length > 0 ? dates[dates.length - 1] : null;
+        setRangeStart((prev) =>
+          prev && dates.includes(prev) ? prev : earliest,
+        );
+        setRangeEnd((prev) => (prev && dates.includes(prev) ? prev : latest));
+      })
       .catch((e) => !cancelled && setError(e.message ?? "Lỗi tải dữ liệu"))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [projectCode]);
+  }, [projectCode, periodMonth]);
+
+  const rows = useMemo(() => {
+    if (dateMode === "range") {
+      if (!rangeStart || !rangeEnd) return [];
+      const [from, to] =
+        rangeStart <= rangeEnd
+          ? [rangeStart, rangeEnd]
+          : [rangeEnd, rangeStart];
+      return allRows.filter(
+        (r) => !!r.report_date && r.report_date >= from && r.report_date <= to,
+      );
+    }
+    return selectedDate
+      ? allRows.filter((r) => r.report_date === selectedDate)
+      : [];
+  }, [allRows, selectedDate, dateMode, rangeStart, rangeEnd]);
 
   const breakdown = useMemo(() => aggregateDemographic(rows), [rows]);
-  const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(breakdown, 10);
+  const {
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    currentData: pagedRows,
+  } = usePagination(breakdown, 10);
 
-  if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
-  if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
+  function handleDateChange(next: string) {
+    if (availableDates.includes(next)) {
+      setSelectedDate(next);
+      return;
+    }
+    setSelectedDate(nearestAvailableDate(next, availableDates) ?? next);
+  }
+
+  function handleRangeStartChange(next: string) {
+    const resolved = availableDates.includes(next)
+      ? next
+      : (nearestAvailableDate(next, availableDates) ?? next);
+    setRangeStart(resolved);
+  }
+
+  function handleRangeEndChange(next: string) {
+    const resolved = availableDates.includes(next)
+      ? next
+      : (nearestAvailableDate(next, availableDates) ?? next);
+    setRangeEnd(resolved);
+  }
+
+  if (loading)
+    return (
+      <div className="notice">
+        <Info size={18} />
+        <div>
+          <b>Đang tải dữ liệu…</b>
+        </div>
+      </div>
+    );
+  if (error)
+    return (
+      <div className="notice">
+        <Info size={18} />
+        <div>
+          <b>Lỗi tải dữ liệu</b>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
 
   return (
     <>
+      <div className="page-toolbar">
+        <div className="tabs" style={{ gap: 4 }}>
+          <button
+            type="button"
+            className={`tab ${dateMode === "single" ? "active" : ""}`}
+            onClick={() => setDateMode("single")}
+          >
+            1 ngày
+          </button>
+          <button
+            type="button"
+            className={`tab ${dateMode === "range" ? "active" : ""}`}
+            onClick={() => setDateMode("range")}
+          >
+            Khoảng ngày
+          </button>
+        </div>
+
+        {dateMode === "single" ? (
+          <label className="sort-select">
+            <span className="sort-select-label">Dữ liệu ngày</span>
+            <input
+              type="date"
+              className="date-range-input"
+              value={selectedDate ?? ""}
+              min={earliestAvailableDate ?? undefined}
+              max={latestAvailableDate ?? undefined}
+              onChange={(e) => handleDateChange(e.target.value)}
+            />
+          </label>
+        ) : (
+          <label className="sort-select">
+            <span className="sort-select-label">Từ</span>
+            <input
+              type="date"
+              className="date-range-input"
+              value={rangeStart ?? ""}
+              min={earliestAvailableDate ?? undefined}
+              max={latestAvailableDate ?? undefined}
+              onChange={(e) => handleRangeStartChange(e.target.value)}
+            />
+            <span className="sort-select-label">Đến</span>
+            <input
+              type="date"
+              className="date-range-input"
+              value={rangeEnd ?? ""}
+              min={earliestAvailableDate ?? undefined}
+              max={latestAvailableDate ?? undefined}
+              onChange={(e) => handleRangeEndChange(e.target.value)}
+            />
+          </label>
+        )}
+      </div>
+
       <article className="card">
-        <div className="card-head"><div><small>Search terms</small><h3>Top keyword theo Clicks</h3></div></div>
+        <div className="card-head">
+          <div>
+            <small>Search terms</small>
+            <h3>Top keyword theo Clicks</h3>
+          </div>
+        </div>
         <div className="chart-wrap large">
-          <VolumeBarChart labels={breakdown.slice(0, 15).map((b) => b.label)} impressions={breakdown.slice(0, 15).map((b) => b.impressions)} />
+          <VolumeBarChart
+            labels={breakdown.slice(0, 15).map((b) => b.label)}
+            impressions={breakdown.slice(0, 15).map((b) => b.impressions)}
+          />
         </div>
       </article>
 
@@ -513,10 +914,18 @@ function KeywordsSection({ projectCode }: { projectCode: string }) {
                   <td className="right">{pct(b.ctr)}</td>
                 </tr>
               ))}
-              {pagedRows.length === 0 && <tr><td colSpan={4}>Chưa có data keyword.</td></tr>}
+              {pagedRows.length === 0 && (
+                <tr>
+                  <td colSpan={4}>Chưa có data keyword.</td>
+                </tr>
+              )}
             </tbody>
           </table>
-          <PaginationControls currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
         </div>
       </article>
     </>

@@ -279,6 +279,7 @@ export function VolumeBarChart({
   labels,
   impressions,
   reach,
+  secondaryLabel = "Reach",
   googleImpressions,
   metaImpressions,
   ctr,
@@ -291,10 +292,9 @@ export function VolumeBarChart({
   labels: string[];
   impressions: number[];
   reach?: number[];
+  secondaryLabel?: string;
   googleImpressions?: number[];
   metaImpressions?: number[];
-  // + thêm: khi truyền, vẽ thêm (các) đường CTR trên trục Y phụ bên phải,
-  // đè lên cùng chart cột Volume thay vì tách chart riêng
   ctr?: number[];
   googleCtr?: number[];
   metaCtr?: number[];
@@ -335,7 +335,7 @@ export function VolumeBarChart({
           yAxisID: "y",
         },
         ...(reach
-          ? [{ label: "Reach", data: reach, backgroundColor: hexToRgba(c.accent, 0.45), borderRadius: 6, yAxisID: "y" }]
+          ? [{ label: secondaryLabel, data: reach, backgroundColor: hexToRgba(c.accent, 0.45), borderRadius: 6, yAxisID: "y" }]
           : []),
       ];
 
