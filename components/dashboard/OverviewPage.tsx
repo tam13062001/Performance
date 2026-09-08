@@ -91,7 +91,9 @@ function PerformanceFunnel({ impressions, engagements, clicks }: PerformanceFunn
         <ol className="performance-funnel-annotations" aria-label="Tỷ lệ chuyển đổi giữa các tầng">
           {conversionAnnotations.map((annotation, index) => (
             <li className={`performance-funnel-annotation ${annotation.tone}`} key={annotation.label}>
-              <span className="performance-funnel-annotation-bracket" aria-hidden="true" />
+              <span className="performance-funnel-annotation-bracket" aria-hidden="true">
+                <span className="performance-funnel-annotation-arrow" />
+              </span>
               <span className="performance-funnel-annotation-copy">
                 <span>{annotation.label}</span>
                 <strong>{pct(annotation.value)}</strong>

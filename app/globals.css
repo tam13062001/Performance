@@ -946,8 +946,7 @@ td.mono {
   border-right: 2px solid var(--funnel-impressions);
   border-bottom: 2px solid var(--funnel-impressions);
 }
-.performance-funnel-annotation-bracket::after {
-  content: "";
+.performance-funnel-annotation-arrow {
   position: absolute;
   left: -2px;
   bottom: -5px;
@@ -960,10 +959,10 @@ td.mono {
 .performance-funnel-annotation.clicks .performance-funnel-annotation-bracket {
   border-color: var(--funnel-clicks);
 }
-.performance-funnel-annotation.clicks .performance-funnel-annotation-bracket::after {
+.performance-funnel-annotation.clicks .performance-funnel-annotation-arrow {
+  top: auto;
+  bottom: -5px;
   border-color: var(--funnel-clicks);
-  top: -5px;
-  bottom: auto;
   transform: rotate(45deg);
 }
 .performance-funnel-rates {
