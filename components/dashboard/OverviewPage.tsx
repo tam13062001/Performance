@@ -58,6 +58,10 @@ function PerformanceFunnel({ impressions, engagements, clicks }: PerformanceFunn
     { label: "CTR", value: rateOf(clicks, impressions), tone: "impressions" },
     { label: "Click-to-engagement", value: rateOf(clicks, engagements), tone: "clicks" },
   ];
+  const conversionAnnotations = [
+    { label: "CTR", value: rateOf(clicks, impressions), tone: "impressions" },
+    { label: "Tỷ lệ chuyển đổi", value: rateOf(clicks, engagements), tone: "clicks" },
+  ];
 
   return (
     <div className="performance-funnel">
@@ -75,14 +79,27 @@ function PerformanceFunnel({ impressions, engagements, clicks }: PerformanceFunn
         ))}
       </ol>
 
-      <ol className="performance-funnel-visual" aria-hidden="true">
-        {stages.map((stage) => (
-          <li className={`performance-funnel-stage ${stage.tone}`} key={stage.tone}>
-            <span>{stage.label}</span>
-            <strong>{num(stage.value)}</strong>
-          </li>
-        ))}
-      </ol>
+      <div className="performance-funnel-visual-wrap">
+        <ol className="performance-funnel-visual" aria-hidden="true">
+          {stages.map((stage) => (
+            <li className={`performance-funnel-stage ${stage.tone}`} key={stage.tone}>
+              <span>{stage.label}</span>
+              <strong>{num(stage.value)}</strong>
+            </li>
+          ))}
+        </ol>
+        <ol className="performance-funnel-annotations" aria-label="Tỷ lệ chuyển đổi giữa các tầng">
+          {conversionAnnotations.map((annotation, index) => (
+            <li className={`performance-funnel-annotation ${annotation.tone}`} key={annotation.label}>
+              <span className="performance-funnel-annotation-bracket" aria-hidden="true" />
+              <span className="performance-funnel-annotation-copy">
+                <span>{annotation.label}</span>
+                <strong>{pct(annotation.value)}</strong>
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
 
       <dl className="performance-funnel-rates" aria-label="Tỷ lệ chuyển đổi">
         {rates.map((rate) => (

@@ -20,15 +20,19 @@
   --faint: #6b78a3;
   --brand: #7c5cff;
   --brand-2: #22d3ee;
+  --client-primary: #7c5cff;
+  --client-secondary: #22d3ee;
+  --client-accent: #f5b942;
   --good: #34d399;
   --good-bg: rgba(52, 211, 153, 0.12);
   --warn: #fbbf24;
   --warn-bg: rgba(251, 191, 36, 0.12);
   --bad: #fb7185;
   --bad-bg: rgba(251, 113, 133, 0.12);
-  --funnel-impressions: #3d86dc;
-  --funnel-engagement: #70a6e8;
-  --funnel-clicks: #f87552;
+  /* Funnel follows the active Client Skin: primary → secondary → accent. */
+  --funnel-impressions: var(--client-primary, var(--brand));
+  --funnel-engagement: var(--client-secondary, var(--brand-2));
+  --funnel-clicks: var(--client-accent, #f5b942);
   --funnel-text: #ffffff;
   --radius: 16px;
 
@@ -826,6 +830,13 @@ td.mono {
 .performance-funnel-metric.clicks .performance-funnel-metric-marker {
   color: var(--funnel-clicks);
 }
+.performance-funnel-visual-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(76px, 0.65fr);
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
 .performance-funnel-visual {
   display: flex;
   flex-direction: column;
@@ -886,6 +897,74 @@ td.mono {
   width: 76%;
   background: var(--funnel-clicks);
   clip-path: polygon(13% 0, 87% 0, 78% 100%, 22% 100%);
+}
+.performance-funnel-annotations {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.performance-funnel-annotation {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 0 8px 10px;
+}
+.performance-funnel-annotation-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 8px;
+}
+.performance-funnel-annotation-copy span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+.performance-funnel-annotation-copy strong {
+  color: var(--funnel-impressions);
+  font-size: 17px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+.performance-funnel-annotation.clicks .performance-funnel-annotation-copy strong {
+  color: var(--funnel-clicks);
+}
+.performance-funnel-annotation-bracket {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 14px;
+  border-top: 2px solid var(--funnel-impressions);
+  border-right: 2px solid var(--funnel-impressions);
+  border-bottom: 2px solid var(--funnel-impressions);
+}
+.performance-funnel-annotation-bracket::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  border-left: 2px solid var(--funnel-impressions);
+  border-bottom: 2px solid var(--funnel-impressions);
+  transform: rotate(45deg);
+}
+.performance-funnel-annotation.clicks .performance-funnel-annotation-bracket {
+  border-color: var(--funnel-clicks);
+}
+.performance-funnel-annotation.clicks .performance-funnel-annotation-bracket::after {
+  border-color: var(--funnel-clicks);
+  top: -5px;
+  bottom: auto;
+  transform: rotate(45deg);
 }
 .performance-funnel-rates {
   grid-column: 1 / -1;
