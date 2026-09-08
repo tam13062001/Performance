@@ -588,50 +588,47 @@ export async function getAllRawConfigsForProject(projectCode: string): Promise<R
   configs.push(buildSemYoutubeConfig('ad_raw_sem_data', 'SEM_DATA', projectCode));
   configs.push(buildSemYoutubeConfig('ad_raw_youtube_data', 'YOUTUBE_DATA', projectCode));
 
-  if (isTanakan) {
+  // 🔧 FIX — trước đây toàn bộ khối demographic (age/gender/region cho mọi
+  // platform) bị bọc trong `if (isTanakan)`, giả định MMU không có
+  // demographic data. Giả định này sai với project có sheet_id đăng ký
+  // trong ad_project_sheet_sources dù project_code = 'MMU'. Giờ bỏ gate
+  // isTanakan, chỉ dựa vào demoSheets.xxx có tồn tại hay không — đúng với
+  // ý nghĩa thật của dữ liệu, không phụ thuộc project_code.
+  const demoSheets = await getDemographicSheetIds(projectCode);
+  const dimensions = ['age', 'gender', 'region', 'device'] as const;
 
-    const demoSheets = await getDemographicSheetIds(projectCode);
-    const dimensions = ['age', 'gender', 'region', 'device'] as const;
+  if (demoSheets.sem) {
+    dimensions.forEach((dim) => {
+      configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
+      configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
+    });
 
-    if (demoSheets.sem) {
-      dimensions.forEach((dim) => {
-        configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
-        configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
-      });
+    const googleOnlyDimensions = ['keyword', 'campaign', 'term'] as const;
+    googleOnlyDimensions.forEach((dim) => {
+      configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
+      configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
+    });
+  }
 
-      // 🔧 MỚI (VUQ3) — 3 tab bổ sung trong DATA_SEM_VU_2026.xlsx:
-      // Keyword, Campaign, Term. Chỉ tồn tại ở nguồn Google/SEM nên tách
-      // riêng khỏi vòng lặp `dimensions` dùng chung cho 4 platform.
-      const googleOnlyDimensions = ['keyword', 'campaign', 'term'] as const;
-      googleOnlyDimensions.forEach((dim) => {
-        configs.push(buildDemographicConfig('google', dim, 'YTD', demoSheets.sem));
-        configs.push(buildDemographicConfig('google', dim, 'MTD', demoSheets.sem));
-      });
-    }
-    
-    if (demoSheets.facebook) {
-      dimensions.forEach((dim) => {
-        configs.push(buildDemographicConfig('meta', dim, 'YTD', demoSheets.facebook));
-        configs.push(buildDemographicConfig('meta', dim, 'MTD', demoSheets.facebook));
-      });
-      // Tab "Utd" trong DATA_FACEBOOK_VU_2026.xlsx (data campaign-level,
-      // không breakdown theo age/gender/region) — theo xác nhận, KHÔNG
-      // cần sync, cố tình không tạo config nào cho tab này.
-    }
+  if (demoSheets.facebook) {
+    dimensions.forEach((dim) => {
+      configs.push(buildDemographicConfig('meta', dim, 'YTD', demoSheets.facebook));
+      configs.push(buildDemographicConfig('meta', dim, 'MTD', demoSheets.facebook));
+    });
+  }
 
-    if (demoSheets.youtube) {
-      dimensions.forEach((dim) => {
-        configs.push(buildDemographicConfig('youtube', dim, 'YTD', demoSheets.youtube));
-        configs.push(buildDemographicConfig('youtube', dim, 'MTD', demoSheets.youtube));
-      });
-    }
-    
-    if (demoSheets.tiktok) {
-      dimensions.forEach((dim) => {
-        configs.push(buildDemographicConfig('tiktok', dim, 'YTD', demoSheets.tiktok));
-        configs.push(buildDemographicConfig('tiktok', dim, 'MTD', demoSheets.tiktok));
-      });
-    }
+  if (demoSheets.youtube) {
+    dimensions.forEach((dim) => {
+      configs.push(buildDemographicConfig('youtube', dim, 'YTD', demoSheets.youtube));
+      configs.push(buildDemographicConfig('youtube', dim, 'MTD', demoSheets.youtube));
+    });
+  }
+
+  if (demoSheets.tiktok) {
+    dimensions.forEach((dim) => {
+      configs.push(buildDemographicConfig('tiktok', dim, 'YTD', demoSheets.tiktok));
+      configs.push(buildDemographicConfig('tiktok', dim, 'MTD', demoSheets.tiktok));
+    });
   }
 
   return configs;
