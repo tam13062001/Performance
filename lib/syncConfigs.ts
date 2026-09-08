@@ -667,73 +667,54 @@ function currentMonthAbbrFromDate(iso: string): string {
  * nó lặp qua tất cả, hoặc tách sheet/tab vật lý riêng cho YTD/MTD.
  * ========================================================= */
 /**
- * TEMP DEBUG VERSION — thay thế hàm findConfigForSheetTab hiện tại bằng bản này,
- * deploy, chạy lại flushDirtyRows 1 lần cho tab Age, rồi vào Vercel Dashboard
- * -> project performance -> tab "Logs" (Runtime Logs), lọc theo request gần nhất
- * tới /api/sync/webhook, đọc toàn bộ dòng bắt đầu bằng "[findConfigForSheetTab DEBUG]".
+ * FIX THẬT SỰ (thay cho bản DEBUG trước đó) — nguyên nhân gốc: nhiều config có
+ * thể cùng khớp 1 tabName trong CÙNG 1 project (vd tab "Region" tồn tại ở cả
+ * sheet Google/SEM lẫn sheet Meta/Facebook của project VUQ3, vì plainTabName
+ * chỉ dựa theo tên dimension, không phân biệt platform). Bản cũ dùng
+ * `configs.find()` -> chỉ lấy candidate ĐẦU TIÊN khớp tên tab, nếu sheetId của
+ * candidate đó không khớp thì bỏ cuộc luôn với cả project thay vì thử các
+ * candidate khác cũng khớp tên tab trong CHÍNH project đó.
  *
- * Sau khi xác định được nguyên nhân, XOÁ log này đi (đừng để log rác chạy mãi
- * trong production — mỗi request sẽ in ra rất nhiều dòng vì loop qua mọi project).
+ * Giờ dùng `configs.filter()` để lấy TẤT CẢ candidate khớp tên tab trong 1
+ * project, rồi so sánh sheetId lần lượt cho tới khi tìm được candidate đúng.
  */
 export async function findConfigForSheetTab(
   sheetId: string,
   tabName: string
 ): Promise<{ projectCode: string; config: RowSyncConfig } | null> {
-  console.log(`[findConfigForSheetTab DEBUG] Bắt đầu tìm config cho sheetId="${sheetId}" tabName="${tabName}" (length=${tabName.length})`);
-
   const projectsRes = await pool.query(`SELECT project_code FROM ad_projects`);
-  console.log(`[findConfigForSheetTab DEBUG] Tổng số project trong ad_projects: ${projectsRes.rows.length}. Danh sách: ${projectsRes.rows.map(r => r.project_code).join(', ')}`);
 
   for (const { project_code } of projectsRes.rows) {
     const configs = await getAllRawConfigsForProject(project_code);
 
-    // Log tất cả tabName có trong config của project này để so sánh trực quan
-    const allTabNames = configs.flatMap((c) => (Array.isArray(c.tabName) ? c.tabName : [c.tabName]));
-    const hasAgeLike = allTabNames.some((t) => t.toLowerCase() === tabName.toLowerCase());
-
-    console.log(
-      `[findConfigForSheetTab DEBUG] project_code="${project_code}": tổng ${configs.length} config, ` +
-      `${hasAgeLike ? 'CÓ' : 'KHÔNG có'} tabName khớp (không phân biệt hoa/thường) với "${tabName}". ` +
-      `Danh sách tabName (rút gọn 30 đầu): ${allTabNames.slice(0, 30).join(' | ')}`
-    );
-
-    const found = configs.find((c) =>
+    const candidates = configs.filter((c) =>
       Array.isArray(c.tabName) ? c.tabName.includes(tabName) : c.tabName === tabName
     );
 
-    if (!found) {
-      if (hasAgeLike) {
-        console.warn(
-          `[findConfigForSheetTab DEBUG] ⚠️ project_code="${project_code}" CÓ tabName khớp không phân biệt hoa/thường nhưng SO SÁNH CHÍNH XÁC (===/includes) THẤT BẠI. ` +
-          `Rất có thể lệch hoa/thường hoặc khoảng trắng ẩn. tabName thực nhận="${JSON.stringify(tabName)}".`
-        );
+    if (candidates.length === 0) continue;
+
+    // Chỉ query sync_projects khi thực sự cần (có candidate nào đó không có
+    // sheetIdOverride riêng, phải dùng sheet chính của project).
+    let mainSheetId: string | undefined;
+    const needsMainSheetId = candidates.some((c) => !c.sheetIdOverride);
+    if (needsMainSheetId) {
+      const mainSheetRes = await pool.query(
+        `SELECT sheet_id FROM sync_projects WHERE project_code = $1`,
+        [project_code]
+      );
+      mainSheetId = mainSheetRes.rows[0]?.sheet_id;
+    }
+
+    for (const candidate of candidates) {
+      const effectiveSheetId = candidate.sheetIdOverride ?? mainSheetId;
+      if (effectiveSheetId === sheetId) {
+        return { projectCode: project_code, config: candidate };
       }
-      continue;
     }
 
-    console.log(
-      `[findConfigForSheetTab DEBUG] project_code="${project_code}": TÌM THẤY config table="${found.table}", ` +
-      `tabName=${JSON.stringify(found.tabName)}, sheetIdOverride=${found.sheetIdOverride ?? '(không có, dùng mainSheetId)'}`
-    );
-
-    const mainSheetRes = await pool.query(
-      `SELECT sheet_id FROM sync_projects WHERE project_code = $1`,
-      [project_code]
-    );
-    const mainSheetId = mainSheetRes.rows[0]?.sheet_id;
-    const effectiveSheetId = found.sheetIdOverride ?? mainSheetId;
-
-    console.log(
-      `[findConfigForSheetTab DEBUG] project_code="${project_code}": so sánh sheet_id — ` +
-      `effectiveSheetId="${effectiveSheetId}" vs sheetId nhận từ webhook="${sheetId}" ` +
-      `=> ${effectiveSheetId === sheetId ? 'KHỚP ✅' : 'KHÔNG KHỚP ❌'}`
-    );
-
-    if (effectiveSheetId === sheetId) {
-      return { projectCode: project_code, config: found };
-    }
+    // Không candidate nào trong project này khớp sheetId -> thử project khác
+    // (trường hợp nhiều project dùng chung tên tab nhưng khác sheet vật lý).
   }
 
-  console.warn(`[findConfigForSheetTab DEBUG] KẾT THÚC vòng lặp, không có project nào khớp cả tabName lẫn sheetId. Trả về null.`);
   return null;
 }
