@@ -7,12 +7,11 @@ import {
   pct,
   freqOf,
   businessBreakdown,
-  deliveryAlertGroups,
 } from "@/lib/dashboard-data";
 import { KpiCards } from "../kpi-card";
 import { ChannelDoughnut, RateLineChart, VolumeBarChart, VolumeEfficiencyChart, type ChannelSlice } from "../charts";
 import { usePlanData, useDailyMetrics, usePagination } from "./hooks";
-import { AlertLine, VerdictChip, PaginationControls } from "./shared-ui";
+import { VerdictChip, PaginationControls } from "./shared-ui";
 
 /* ---------------- Volume & Efficiency theo Phase ---------------- */
 function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessBreakdown> }) {
@@ -39,12 +38,81 @@ function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessB
   );
 }
 
+type FunnelStageTone = "impressions" | "engagement" | "clicks";
+
+type PerformanceFunnelProps = {
+  impressions: number;
+  engagements: number;
+  clicks: number;
+};
+
+function PerformanceFunnel({ impressions, engagements, clicks }: PerformanceFunnelProps) {
+  const stages: Array<{ label: string; value: number; tone: FunnelStageTone }> = [
+    { label: "Total impressions", value: impressions, tone: "impressions" },
+    { label: "Total engagement", value: engagements, tone: "engagement" },
+    { label: "Total clicks", value: clicks, tone: "clicks" },
+  ];
+  const rateOf = (value: number, base: number) => (base > 0 ? (value / base) * 100 : 0);
+  const rates = [
+    { label: "Engagement rate", value: rateOf(engagements, impressions), tone: "engagement" },
+    { label: "CTR", value: rateOf(clicks, impressions), tone: "impressions" },
+    { label: "Click-to-engagement", value: rateOf(clicks, engagements), tone: "clicks" },
+  ];
+
+  return (
+    <div className="performance-funnel">
+      <ol className="performance-funnel-metrics" aria-label="Tổng quan hiệu quả chuyển đổi">
+        {stages.map((stage, index) => (
+          <li className={`performance-funnel-metric ${stage.tone}`} key={stage.tone}>
+            <span className="performance-funnel-metric-marker" aria-hidden="true">
+              {index + 1}
+            </span>
+            <span className="performance-funnel-metric-copy">
+              <span className="performance-funnel-metric-label">{stage.label}</span>
+              <strong>{num(stage.value)}</strong>
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      <ol className="performance-funnel-visual" aria-hidden="true">
+        {stages.map((stage) => (
+          <li className={`performance-funnel-stage ${stage.tone}`} key={stage.tone}>
+            <span>{stage.label}</span>
+            <strong>{num(stage.value)}</strong>
+          </li>
+        ))}
+      </ol>
+
+      <dl className="performance-funnel-rates" aria-label="Tỷ lệ chuyển đổi">
+        {rates.map((rate) => (
+          <div className={`performance-funnel-rate ${rate.tone}`} key={rate.label}>
+            <dt>{rate.label}</dt>
+            <dd>{pct(rate.value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 /* ---------------- Campaign Overview ---------------- */
 export function OverviewPage({ projectCode, periodMonth, planView }: { projectCode: string; periodMonth: string; planView: "MTD" | "YTD" }) {
   const { loading, error, kpis, signals, score, campaignRows, data } = usePlanData(projectCode, periodMonth);
-  const alertGroups = useMemo(() => deliveryAlertGroups(data), [data]);
 
   const bizRows = useMemo(() => businessBreakdown("phase", data), [data]);
+  const performanceTotals = useMemo(
+    () =>
+      data.reduce(
+        (totals, row) => ({
+          impressions: totals.impressions + (row.impressions ?? 0),
+          engagements: totals.engagements + (row.engagements ?? 0),
+          clicks: totals.clicks + (row.clicks ?? 0),
+        }),
+        { impressions: 0, engagements: 0, clicks: 0 },
+      ),
+    [data],
+  );
 
   // Daily trend từ ad_daily_metrics (chart hiện đang comment ở dưới, giữ hook
   // để không phá vỡ nếu bật lại card daily trend trong tương lai).
@@ -65,8 +133,6 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
     .filter(([, imp]) => imp > 0)
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({ label, value }));
-  const isAllClear = alertGroups.laggingDelivery.length === 0 && alertGroups.overCost.length === 0;
-
   return (
     <>
       <div className="hero">
@@ -151,37 +217,16 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
 
         <article className="card">
           <div className="card-head">
-            <div><small>PERFORMANCE SIGNALS</small></div>
+            <div>
+              <small>PERFORMANCE SIGNALS</small>
+              <h3>Hiệu quả chuyển đổi</h3>
+            </div>
           </div>
-          <div className="alerts">
-            {isAllClear ? (
-              <div className="alert-empty-all" style={{ marginTop: '10px' }}>
-                <strong>Hoạt động ổn định</strong>
-                <p>✓ Không có tín hiệu bất thường</p>
-                <p>Tiến độ phân phối, chất lượng chiến dịch, hiệu quả chi phí hiện đang nằm trong ngưỡng tối ưu.</p>
-              </div>
-            ) : (
-              <>
-                <div className="alert-group">
-                  <strong>1. Chậm spending/ delivery</strong>
-                  {alertGroups.laggingDelivery.length === 0 ? (
-                    <p className="alert-empty">Hoạt động ổn định</p>
-                  ) : (
-                    alertGroups.laggingDelivery.map((row) => <AlertLine key={row.key} row={row} />)
-                  )}
-                </div>
-
-                <div className="alert-group">
-                  <strong>2. Chi phí vượt ngưỡng</strong>
-                  {alertGroups.overCost.length === 0 ? (
-                    <p className="alert-empty">✓ Không có tín hiệu bất thường</p>
-                  ) : (
-                    alertGroups.overCost.map((row) => <AlertLine key={row.key} row={row} />)
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+          <PerformanceFunnel
+            impressions={performanceTotals.impressions}
+            engagements={performanceTotals.engagements}
+            clicks={performanceTotals.clicks}
+          />
         </article>
       </div>
 

@@ -2,6 +2,10 @@
 
 @theme inline {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-funnel-impressions: var(--funnel-impressions);
+  --color-funnel-engagement: var(--funnel-engagement);
+  --color-funnel-clicks: var(--funnel-clicks);
+  --color-funnel-text: var(--funnel-text);
 }
 
 :root {
@@ -22,6 +26,10 @@
   --warn-bg: rgba(251, 191, 36, 0.12);
   --bad: #fb7185;
   --bad-bg: rgba(251, 113, 133, 0.12);
+  --funnel-impressions: #3d86dc;
+  --funnel-engagement: #70a6e8;
+  --funnel-clicks: #f87552;
+  --funnel-text: #ffffff;
   --radius: 16px;
 
   /* Chart.js reads these at render time so charts follow the UI theme */
@@ -749,6 +757,174 @@ td.mono {
   color: var(--muted);
   background: var(--panel-2);
   border: 1px solid var(--line);
+}
+
+/* ---------- Performance funnel ---------- */
+.performance-funnel {
+  display: grid;
+  grid-template-columns: minmax(126px, 0.82fr) minmax(156px, 1.18fr);
+  grid-template-rows: minmax(212px, 1fr) auto;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 18px;
+  min-width: 0;
+  padding: 8px 0 2px;
+}
+.performance-funnel-metrics {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.performance-funnel-metric {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+}
+.performance-funnel-metric-marker {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.performance-funnel-metric-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.performance-funnel-metric-label {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.performance-funnel-metric strong {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.performance-funnel-metric.impressions .performance-funnel-metric-marker {
+  color: var(--funnel-impressions);
+}
+.performance-funnel-metric.engagement .performance-funnel-metric-marker {
+  color: var(--funnel-engagement);
+}
+.performance-funnel-metric.clicks .performance-funnel-metric-marker {
+  color: var(--funnel-clicks);
+}
+.performance-funnel-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.performance-funnel-stage {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 68px;
+  color: var(--funnel-text);
+  text-align: center;
+  filter: drop-shadow(0 5px 7px rgba(4, 10, 28, 0.16));
+  transition: filter 0.18s ease, transform 0.18s ease;
+}
+.performance-funnel-stage + .performance-funnel-stage {
+  margin-top: -1px;
+}
+.performance-funnel-stage:hover {
+  z-index: 4;
+  filter: drop-shadow(0 7px 10px rgba(4, 10, 28, 0.26));
+  transform: translateY(-1px);
+}
+.performance-funnel-stage span,
+.performance-funnel-stage strong {
+  max-width: 88%;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.performance-funnel-stage span {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.performance-funnel-stage strong {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.1;
+}
+.performance-funnel-stage.impressions {
+  background: var(--funnel-impressions);
+  clip-path: polygon(7% 0, 93% 0, 84% 100%, 16% 100%);
+}
+.performance-funnel-stage.engagement {
+  width: 88%;
+  background: var(--funnel-engagement);
+  clip-path: polygon(10% 0, 90% 0, 82% 100%, 18% 100%);
+}
+.performance-funnel-stage.clicks {
+  width: 76%;
+  background: var(--funnel-clicks);
+  clip-path: polygon(13% 0, 87% 0, 78% 100%, 22% 100%);
+}
+.performance-funnel-rates {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line-soft);
+}
+.performance-funnel-rate {
+  min-width: 0;
+  padding: 10px 10px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.performance-funnel-rate dt {
+  overflow-wrap: anywhere;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.3;
+}
+.performance-funnel-rate dd {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.performance-funnel-rate.engagement dd {
+  color: var(--funnel-engagement);
+}
+.performance-funnel-rate.impressions dd {
+  color: var(--funnel-impressions);
+}
+.performance-funnel-rate.clicks dd {
+  color: var(--funnel-clicks);
 }
 
 .grid-2 {
@@ -3232,6 +3408,17 @@ tbody tr:hover {
     padding: 9px 10px;
   }
 
+  .performance-funnel {
+    grid-template-columns: minmax(118px, 0.85fr) minmax(150px, 1.15fr);
+    gap: 12px;
+  }
+  .performance-funnel-metrics {
+    gap: 12px;
+  }
+  .performance-funnel-stage {
+    height: 62px;
+  }
+
   .chart-wrap {
     height: 240px;
   }
@@ -3326,6 +3513,43 @@ tbody tr:hover {
   .card-head {
     flex-wrap: wrap;
     gap: 8px;
+  }
+  .performance-funnel {
+    grid-template-columns: minmax(108px, 0.8fr) minmax(134px, 1.2fr);
+    gap: 10px;
+  }
+  .performance-funnel-metric {
+    gap: 7px;
+  }
+  .performance-funnel-metric-marker {
+    flex-basis: 22px;
+    width: 22px;
+    height: 22px;
+  }
+  .performance-funnel-metric strong {
+    font-size: 16px;
+  }
+  .performance-funnel-stage {
+    height: 58px;
+  }
+  .performance-funnel-stage span {
+    font-size: 9px;
+  }
+  .performance-funnel-stage strong {
+    font-size: 12px;
+  }
+  .performance-funnel-rates {
+    gap: 6px;
+    padding-top: 10px;
+  }
+  .performance-funnel-rate {
+    padding: 8px 7px;
+  }
+  .performance-funnel-rate dt {
+    font-size: 9px;
+  }
+  .performance-funnel-rate dd {
+    font-size: 13px;
   }
 
   .modal-actions,
