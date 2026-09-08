@@ -639,163 +639,10 @@ function currentMonthAbbr(): string {
   return MONTHS[new Date().getMonth()];
 }
 
-/* =========================================================
- * DEMOGRAPHIC — Google/SEM (age, gender, region)
- * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI TỪ getAllRawConfigsForProject.
- * Chức năng này đã được thay bằng buildDemographicConfig() dùng chung
- * (xem phía trên, đã cập nhật để khớp header + tên tab thật của VUQ3).
- * Giữ lại hàm này để không phá vỡ chỗ khác có thể còn import, nhưng nếu
- * không còn nơi nào dùng thì có thể xoá an toàn.
- * ========================================================= */
-function buildGoogleDemographicConfig(
-  dimension: 'age' | 'gender' | 'region',
-  periodType: 'YTD' | 'MTD'
-): RowSyncConfig {
-  const tabName = periodType === 'YTD' ? `ytd_search_${dimension}` : `mtd_search_${dimension}`;
-  const periodMonth = periodType === 'YTD' ? 'YTD' : currentMonthAbbr();
-
-  const dimensionAliases: Record<string, string[]> = {
-    age: ['age', 'age_(matched)', 'age (matched)'],
-    gender: ['gender', 'gender_(matched)', 'gender (matched)'],
-    region: ['region', 'region_(matched)', 'region (matched)'],
-  };
-
-  return {
-    table: 'ad_demographic_metrics',
-    tabName,
-    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
-    deleteScopeColumns: ['period_month', 'platform', 'breakdown_type'],
-    parseRowByHeader: (get) => {
-      const campaignName = s(get(['campaign']));
-      const breakdownValue = s(get(dimensionAliases[dimension]));
-      if (!campaignName || !breakdownValue) return null;
-
-      return {
-        period_month: periodMonth,
-        platform: 'google',
-        campaign_name: campaignName,
-        breakdown_type: dimension,
-        breakdown_value: breakdownValue,
-        clicks: n(get(['clicks'])),
-        impressions: n(get(['impr.', 'impr', 'impressions'])),
-        ctr: nOrNull(get(['ctr'])) !== null ? n(get(['ctr'])) * 100 : null,
-        reach: null,
-        spend: null,
-      };
-    },
-  };
-}
-
-/* =========================================================
- * DEMOGRAPHIC — Meta/Facebook (age, gender, region)
- * ⚠️ CHƯA MIGRATE - comment gốc tự ghi "chưa chắc header thật", nên
- * giữ index-based, đợi bạn xác nhận header thật rồi migrate sau.
- * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — xem ghi chú ở buildGoogleDemographicConfig.
- * ========================================================= */
-function buildMetaDemographicConfig(
-  dimension: 'age' | 'gender' | 'region',
-  periodType: 'YTD' | 'MTD'
-): RowSyncConfig {
-  const tabName = periodType === 'YTD' ? `ytd_${dimension}` : `mtd_${dimension}`;
-
-  return {
-    table: 'ad_demographic_metrics',
-    tabName,
-    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
-    deleteScopeColumns: ['period_month', 'platform', 'breakdown_type'],
-    parseRow: (row) => {
-      const dateStop = parseSheetDate(row[4]);
-      const campaignName = s(row[6]);
-      const breakdownValue = s(row[5]);
-      if (!dateStop || !campaignName || !breakdownValue) return null;
-
-      return {
-        period_month: periodType === 'YTD' ? 'YTD' : currentMonthAbbrFromDate(dateStop),
-        platform: 'meta',
-        campaign_name: campaignName,
-        breakdown_type: dimension,
-        breakdown_value: breakdownValue,
-        impressions: n(row[11]),
-        reach: n(row[12]),
-        clicks: n(row[13]),
-        spend: n(row[10]),
-        ctr: nOrNull(row[14]) !== null ? n(row[14]) * 100 : null,
-      };
-    },
-  };
-}
-
 function currentMonthAbbrFromDate(iso: string): string {
   return MONTHS[new Date(iso).getMonth()];
 }
 
-/* =========================================================
- * SEM mtd_search_campaign
- * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — logic tương đương đã nằm trong
- * buildDemographicConfig('google', 'campaign', ...) ở trên (breakdown_value
- * = ad group, tab 'Campaign'). Giữ lại phòng khi có nơi khác import.
- * ========================================================= */
-function buildGoogleSearchCampaignConfig(sheetIdOverride?: string): RowSyncConfig {
-  return {
-    table: 'ad_demographic_metrics',
-    tabName: 'mtd_search_campaign',
-    sheetIdOverride,
-    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
-    deleteScopeColumns: ['period_month', 'platform', 'breakdown_type'],
-    parseRowByHeader: (get) => {
-      const campaignName = s(get(['campaign']));
-      const adGroup = s(get(['ad_group', 'ad group']));
-      if (!campaignName || !adGroup) return null;
-
-      return {
-        period_month: currentMonthAbbr(),
-        platform: 'google',
-        campaign_name: campaignName,
-        breakdown_type: 'campaign',
-        breakdown_value: adGroup,
-        clicks: n(get(['clicks'])),
-        impressions: n(get(['impr.', 'impr', 'impressions'])),
-        ctr: nOrNull(get(['ctr'])) !== null ? n(get(['ctr'])) * 100 : null,
-        reach: null,
-        spend: null,
-      };
-    },
-  };
-}
-
-/* =========================================================
- * SEM mtd_search_keyword
- * ⚠️ LEGACY / KHÔNG CÒN ĐƯỢC GỌI — logic tương đương đã nằm trong
- * buildDemographicConfig('google', 'term', ...) ở trên (tab 'Term',
- * alias 'search term'). Giữ lại phòng khi có nơi khác import.
- * ========================================================= */
-function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig {
-  return {
-    table: 'ad_demographic_metrics',
-    tabName: 'mtd_search_keyword',
-    sheetIdOverride,
-    conflictColumns: `project_id, period_month, platform, breakdown_type, breakdown_value, COALESCE(campaign_name, '')`,
-    deleteScopeColumns: ['period_month', 'platform', 'breakdown_type'],
-    parseRowByHeader: (get) => {
-      const searchTerm = s(get(['search_term', 'search term']));
-      const adGroup = s(get(['ad_group', 'ad group']));
-      if (!searchTerm) return null;
-
-      return {
-        period_month: currentMonthAbbr(),
-        platform: 'google',
-        campaign_name: adGroup,
-        breakdown_type: 'keyword',
-        breakdown_value: searchTerm,
-        clicks: n(get(['clicks'])),
-        impressions: n(get(['impr.', 'impr', 'impressions'])),
-        ctr: nOrNull(get(['ctr'])) !== null ? n(get(['ctr'])) * 100 : null,
-        reach: null,
-        spend: null,
-      };
-    },
-  };
-}
 
 /* =========================================================
  * findConfigForSheetTab
@@ -819,18 +666,55 @@ function buildGoogleSearchKeywordConfig(sheetIdOverride?: string): RowSyncConfig
  * trả về TẤT CẢ config khớp (không chỉ .find() đầu tiên) và cho phần gọi
  * nó lặp qua tất cả, hoặc tách sheet/tab vật lý riêng cho YTD/MTD.
  * ========================================================= */
+/**
+ * TEMP DEBUG VERSION — thay thế hàm findConfigForSheetTab hiện tại bằng bản này,
+ * deploy, chạy lại flushDirtyRows 1 lần cho tab Age, rồi vào Vercel Dashboard
+ * -> project performance -> tab "Logs" (Runtime Logs), lọc theo request gần nhất
+ * tới /api/sync/webhook, đọc toàn bộ dòng bắt đầu bằng "[findConfigForSheetTab DEBUG]".
+ *
+ * Sau khi xác định được nguyên nhân, XOÁ log này đi (đừng để log rác chạy mãi
+ * trong production — mỗi request sẽ in ra rất nhiều dòng vì loop qua mọi project).
+ */
 export async function findConfigForSheetTab(
   sheetId: string,
   tabName: string
 ): Promise<{ projectCode: string; config: RowSyncConfig } | null> {
+  console.log(`[findConfigForSheetTab DEBUG] Bắt đầu tìm config cho sheetId="${sheetId}" tabName="${tabName}" (length=${tabName.length})`);
+
   const projectsRes = await pool.query(`SELECT project_code FROM ad_projects`);
+  console.log(`[findConfigForSheetTab DEBUG] Tổng số project trong ad_projects: ${projectsRes.rows.length}. Danh sách: ${projectsRes.rows.map(r => r.project_code).join(', ')}`);
 
   for (const { project_code } of projectsRes.rows) {
     const configs = await getAllRawConfigsForProject(project_code);
+
+    // Log tất cả tabName có trong config của project này để so sánh trực quan
+    const allTabNames = configs.flatMap((c) => (Array.isArray(c.tabName) ? c.tabName : [c.tabName]));
+    const hasAgeLike = allTabNames.some((t) => t.toLowerCase() === tabName.toLowerCase());
+
+    console.log(
+      `[findConfigForSheetTab DEBUG] project_code="${project_code}": tổng ${configs.length} config, ` +
+      `${hasAgeLike ? 'CÓ' : 'KHÔNG có'} tabName khớp (không phân biệt hoa/thường) với "${tabName}". ` +
+      `Danh sách tabName (rút gọn 30 đầu): ${allTabNames.slice(0, 30).join(' | ')}`
+    );
+
     const found = configs.find((c) =>
       Array.isArray(c.tabName) ? c.tabName.includes(tabName) : c.tabName === tabName
     );
-    if (!found) continue;
+
+    if (!found) {
+      if (hasAgeLike) {
+        console.warn(
+          `[findConfigForSheetTab DEBUG] ⚠️ project_code="${project_code}" CÓ tabName khớp không phân biệt hoa/thường nhưng SO SÁNH CHÍNH XÁC (===/includes) THẤT BẠI. ` +
+          `Rất có thể lệch hoa/thường hoặc khoảng trắng ẩn. tabName thực nhận="${JSON.stringify(tabName)}".`
+        );
+      }
+      continue;
+    }
+
+    console.log(
+      `[findConfigForSheetTab DEBUG] project_code="${project_code}": TÌM THẤY config table="${found.table}", ` +
+      `tabName=${JSON.stringify(found.tabName)}, sheetIdOverride=${found.sheetIdOverride ?? '(không có, dùng mainSheetId)'}`
+    );
 
     const mainSheetRes = await pool.query(
       `SELECT sheet_id FROM sync_projects WHERE project_code = $1`,
@@ -839,10 +723,17 @@ export async function findConfigForSheetTab(
     const mainSheetId = mainSheetRes.rows[0]?.sheet_id;
     const effectiveSheetId = found.sheetIdOverride ?? mainSheetId;
 
+    console.log(
+      `[findConfigForSheetTab DEBUG] project_code="${project_code}": so sánh sheet_id — ` +
+      `effectiveSheetId="${effectiveSheetId}" vs sheetId nhận từ webhook="${sheetId}" ` +
+      `=> ${effectiveSheetId === sheetId ? 'KHỚP ✅' : 'KHÔNG KHỚP ❌'}`
+    );
+
     if (effectiveSheetId === sheetId) {
       return { projectCode: project_code, config: found };
     }
   }
 
+  console.warn(`[findConfigForSheetTab DEBUG] KẾT THÚC vòng lặp, không có project nào khớp cả tabName lẫn sheetId. Trả về null.`);
   return null;
 }
