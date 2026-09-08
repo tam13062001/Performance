@@ -2,10 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 import { findConfigForSheetTab } from '@/lib/syncConfigs';
 import { findLegacyMasterDataProject, processMasterDataRows } from '@/lib/syncMasterData';
+import type { PoolClient } from 'pg';
 
 type WebhookRowNew = { row_number: number; values: unknown[] };
 
 const FULL_REPLACE_SKIP_RATIO_THRESHOLD = 0.05;
+
+// Số scope-tuple tối đa trong 1 câu DELETE ... WHERE (col1, col2) IN (...)
+// Giữ nhỏ để tránh vượt giới hạn param của Postgres (65535) và tránh query quá dài.
+const DELETE_CHUNK_SIZE = 1000;
+
+// Số dòng tối đa trong 1 câu INSERT nhiều dòng (multi-row VALUES).
+const INSERT_BATCH_SIZE = 500;
 
 function normalizeHeader(v: unknown): string {
   return String(v ?? '').trim().toLowerCase();
@@ -36,6 +44,132 @@ function extractConflictColumnNames(conflictColumns: string): string[] {
   const matches = conflictColumns.match(/(?:COALESCE\(\s*)?([a-zA-Z_][a-zA-Z0-9_]*)/g) ?? [];
   return [...new Set(matches.map((m) => m.replace(/^COALESCE\(\s*/, '').trim()))]
     .filter((c) => c.toUpperCase() !== 'COALESCE');
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Xóa theo scope, chia thành nhiều chunk thay vì 1 câu DELETE riêng cho mỗi
+ * scope key. Với bảng có nhiều giá trị phân biệt (vd tab Term), cách cũ chạy
+ * hàng nghìn DELETE tuần tự trong 1 transaction -> dễ statement_timeout.
+ * Cách này gộp nhiều scope vào 1 câu DELETE dùng mệnh đề (col1, col2) IN (...).
+ *
+ * LƯU Ý: vẫn cần index trên (project_id, ...scopeCols) để mỗi chunk chạy nhanh;
+ * nếu không có index, IN-list lớn vẫn có thể chậm vì mỗi tuple phải seq scan.
+ */
+async function deleteByScopesChunked(
+  client: PoolClient,
+  table: string,
+  projectId: number,
+  scopeCols: string[],
+  scopeRows: unknown[][]
+) {
+  if (scopeRows.length === 0) return;
+
+  const chunks = chunkArray(scopeRows, DELETE_CHUNK_SIZE);
+  const tupleCols = scopeCols.join(', ');
+
+  for (const chunk of chunks) {
+    const valuesClause = chunk
+      .map(
+        (_, r) =>
+          `(${scopeCols.map((_, c) => `$${r * scopeCols.length + c + 2}`).join(', ')})`
+      )
+      .join(', ');
+    const flatParams = chunk.flat();
+
+    await client.query(
+      `DELETE FROM ${table} WHERE project_id = $1 AND (${tupleCols}) IN (${valuesClause})`,
+      [projectId, ...flatParams]
+    );
+  }
+}
+
+/**
+ * Insert theo batch (multi-row VALUES) để giảm số round-trip tới DB.
+ * Nếu cả batch lỗi (vd 1 dòng trong batch vi phạm constraint), fallback về
+ * insert từng dòng trong đúng batch đó để vẫn đếm chính xác successRows/failedRows
+ * và không làm rollback toàn bộ transaction vì 1 dòng lỗi.
+ *
+ * onConflict: truyền vào nếu là UPSERT (undefined nếu là FULL_REPLACE insert thường).
+ */
+async function insertRowsBatched(
+  client: PoolClient,
+  table: string,
+  parsedRows: Record<string, any>[],
+  onConflict?: { conflictColumns: string; updateCols: string[] }
+): Promise<{ successRows: number; failedRows: number }> {
+  let successRows = 0;
+  let failedRows = 0;
+  if (parsedRows.length === 0) return { successRows, failedRows };
+
+  const cols = Object.keys(parsedRows[0]);
+
+  function buildSql(rows: Record<string, any>[]): { sql: string; params: unknown[] } {
+    const valuesClause = rows
+      .map(
+        (_, r) => `(${cols.map((_, c) => `$${r * cols.length + c + 1}`).join(', ')})`
+      )
+      .join(', ');
+    const flatParams = rows.flatMap((row) => cols.map((c) => row[c]));
+
+    let sql = `INSERT INTO ${table} (${cols.join(', ')}) VALUES ${valuesClause}`;
+    if (onConflict) {
+      sql += ` ON CONFLICT (${onConflict.conflictColumns})`;
+      sql +=
+        onConflict.updateCols.length > 0
+          ? ` DO UPDATE SET ${onConflict.updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`
+          : ` DO NOTHING`;
+    }
+    return { sql, params: flatParams };
+  }
+
+  async function insertSingle(values: Record<string, any>): Promise<boolean> {
+    const singleCols = Object.keys(values);
+    const placeholders = singleCols.map((_, i) => `$${i + 1}`);
+    let sql = `INSERT INTO ${table} (${singleCols.join(', ')}) VALUES (${placeholders.join(', ')})`;
+    if (onConflict) {
+      sql += ` ON CONFLICT (${onConflict.conflictColumns})`;
+      sql +=
+        onConflict.updateCols.length > 0
+          ? ` DO UPDATE SET ${onConflict.updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`
+          : ` DO NOTHING`;
+    }
+    try {
+      await client.query(sql, singleCols.map((c) => values[c]));
+      return true;
+    } catch (e) {
+      console.error(`Webhook insert lỗi (${table}):`, (e as Error).message);
+      return false;
+    }
+  }
+
+  const batches = chunkArray(parsedRows, INSERT_BATCH_SIZE);
+
+  for (const batch of batches) {
+    const { sql, params } = buildSql(batch);
+    try {
+      await client.query(sql, params);
+      successRows += batch.length;
+    } catch (e) {
+      // Cả batch lỗi -> fallback insert từng dòng để cô lập đúng (các) dòng lỗi
+      console.error(
+        `Webhook batch insert lỗi (${table}), fallback insert từng dòng. Batch size=${batch.length}:`,
+        (e as Error).message
+      );
+      for (const values of batch) {
+        const ok = await insertSingle(values);
+        if (ok) successRows++;
+        else failedRows++;
+      }
+    }
+  }
+
+  return { successRows, failedRows };
 }
 
 export async function POST(request: NextRequest) {
@@ -71,13 +205,7 @@ export async function POST(request: NextRequest) {
       : { row_number: (r as WebhookRowNew).row_number ?? null, values: (r as WebhookRowNew).values }
   );
 
-  // ===== FIX MASTER_DATA — MASTER_DATA không nằm trong getAllRawConfigsForProject
-  // (nó dùng aggregation SUM + resolveChannelId/resolveCampaignId riêng, khác hẳn
-  // pattern RowSyncConfig của các bảng khác), nên findConfigForSheetTab luôn trả
-  // null cho tab này -> webhook cũ báo 404 dù project có bật uses_legacy_master_data.
-  // Giờ chặn sớm: nếu tab_name là MASTER_DATA VÀ sheet_id khớp đúng 1 project đang
-  // dùng layout cũ, xử lý ngay bằng processMasterDataRows (dùng chung logic với
-  // batch flow), không đi qua findConfigForSheetTab/parseRow nữa.
+  // ===== MASTER_DATA — xử lý riêng, không đi qua findConfigForSheetTab/parseRow =====
   if (normalizeHeader(tab_name) === 'master_data') {
     const legacyProject = await findLegacyMasterDataProject(sheet_id);
     if (legacyProject) {
@@ -120,7 +248,7 @@ export async function POST(request: NextRequest) {
           changeType: change_type ?? 'UPSERT',
           fullReplace: false,
           successRows, failedRows,
-          skippedRows: failedRows, // MASTER_DATA không phân biệt "skip" vs "failed" — thiếu field bắt buộc tính chung vào failedRows
+          skippedRows: failedRows,
           totalRows: dataRows.length,
           sampleErrors, mergedDuplicateGroups,
         });
@@ -135,9 +263,6 @@ export async function POST(request: NextRequest) {
         client.release();
       }
     }
-    // Không khớp project nào dùng layout cũ -> rơi xuống nhánh chung bên dưới,
-    // sẽ trả 404 "không tìm thấy config" như trước (đúng, vì project đó không
-    // nên có tab MASTER_DATA).
   }
 
   const match = await findConfigForSheetTab(sheet_id, tab_name);
@@ -203,54 +328,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Set timeout riêng cho transaction này — vẫn giữ giá trị mặc định của DB cho
+    // các session khác. Đây là lớp bảo vệ phụ, không thay thế cho việc tối ưu
+    // DELETE/INSERT ở dưới, chỉ để tránh timeout khi payload đột biến lớn.
     await client.query('BEGIN');
+    await client.query(`SET LOCAL statement_timeout = '120s'`);
 
     if (useFullReplace && parsedRows.length > 0) {
       const scopeCols = config.deleteScopeColumns!;
-      const seenScopes = new Set<string>();
+      const seenScopes = new Map<string, unknown[]>();
       for (const values of parsedRows) {
         const scopeKey = scopeCols.map((c) => String(values[c])).join('|');
-        if (seenScopes.has(scopeKey)) continue;
-        seenScopes.add(scopeKey);
-
-        const whereCols = ['project_id', ...scopeCols];
-        const whereVals = [projectId, ...scopeCols.map((c) => values[c])];
-        const whereClause = whereCols.map((c, i) => `${c} = $${i + 1}`).join(' AND ');
-        await client.query(`DELETE FROM ${config.table} WHERE ${whereClause}`, whereVals);
+        if (!seenScopes.has(scopeKey)) {
+          seenScopes.set(scopeKey, scopeCols.map((c) => values[c]));
+        }
       }
+      await deleteByScopesChunked(client, config.table, projectId, scopeCols, Array.from(seenScopes.values()));
     }
 
     let successRows = 0;
     let failedRows = 0;
 
-    for (const values of parsedRows) {
-      const cols = Object.keys(values);
-      const placeholders = cols.map((_, i) => `$${i + 1}`);
-
-      let sql: string;
-      if (useFullReplace) {
-        sql = `INSERT INTO ${config.table} (${cols.join(', ')}) VALUES (${placeholders.join(', ')})`;
-      } else {
-        const conflictCols = extractConflictColumnNames(config.conflictColumns);
-        const updateCols = cols.filter((c) => !conflictCols.includes(c));
-        const updateSetClause = updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ');
-        sql = updateCols.length > 0
-          ? `INSERT INTO ${config.table} (${cols.join(', ')})
-             VALUES (${placeholders.join(', ')})
-             ON CONFLICT (${config.conflictColumns})
-             DO UPDATE SET ${updateSetClause}`
-          : `INSERT INTO ${config.table} (${cols.join(', ')})
-             VALUES (${placeholders.join(', ')})
-             ON CONFLICT (${config.conflictColumns}) DO NOTHING`;
-      }
-
-      try {
-        await client.query(sql, cols.map((c) => values[c]));
-        successRows++;
-      } catch (e) {
-        console.error(`Webhook insert lỗi (${config.table}):`, (e as Error).message);
-        failedRows++;
-      }
+    if (useFullReplace) {
+      const result = await insertRowsBatched(client, config.table, parsedRows);
+      successRows = result.successRows;
+      failedRows = result.failedRows;
+    } else {
+      const conflictCols = extractConflictColumnNames(config.conflictColumns);
+      const allCols = parsedRows.length > 0 ? Object.keys(parsedRows[0]) : [];
+      const updateCols = allCols.filter((c) => !conflictCols.includes(c));
+      const result = await insertRowsBatched(client, config.table, parsedRows, {
+        conflictColumns: config.conflictColumns,
+        updateCols,
+      });
+      successRows = result.successRows;
+      failedRows = result.failedRows;
     }
 
     await client.query('COMMIT');
