@@ -92,6 +92,6 @@ export async function POST(req: Request) {
           : "Không tạo được phân tích AI. Vui lòng thử lại."
 
     const status = needsCard ? 402 : isRateLimit ? 429 : 500
-    return Response.json({ error: message }, { status })
+    return Response.json({ error: message, debug: raw }, { status })
   }
 }
