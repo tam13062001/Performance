@@ -10,6 +10,7 @@
     "discover": "tsx --env-file=.env.local scripts/discover-sheets.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^4.0.65",
     "@base-ui/react": "^1.5.0",
     "@supabase/supabase-js": "^2.109.0",
     "@vercel/analytics": "1.6.1",

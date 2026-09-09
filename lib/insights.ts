@@ -1,111 +1,136 @@
-import { num, pct, vnd, freqFmt } from "./metrics"
+// lib/insights.ts
+//
+// Shared shape + logic cho khối "AI insights" gắn dưới mỗi chart.
+// - InsightSpec: mô tả 1 chart một cách trung lập (không phụ thuộc chart lib).
+// - buildInsights(): rule-based, chạy ngay trên client, KHÔNG gọi API.
+// - specToPrompt(): format lại spec thành text để gửi cho LLM (route /api/insights).
 
-// A chart-agnostic description of what a chart plots. Every dashboard chart can
-// map its series onto this shape, so one engine covers all of them.
 export type InsightSpec = {
+  /** Tiêu đề chart, dùng để hiển thị + đưa vào prompt. VD: "Impressions theo nền tảng" */
   title: string
-  // e.g. "theo Phase", "theo tháng", "theo kênh"
+  /** Bổ sung ngữ cảnh ngắn cho tiêu đề. VD: "theo nền tảng", "theo Phase" */
   subject: string
+  /** Nhãn trục X / từng lát cắt. VD: ["Google", "Meta", "Tiktok"] */
   labels: string[]
+
+  /** Chuỗi số liệu dạng khối lượng (impressions, clicks, spend...) — optional */
   volume?: number[]
+  /** Tên hiển thị cho `volume`. VD: "Impressions", "Spend" */
   volumeLabel?: string
-  ctr?: number[]
-  frequency?: number[]
-  spend?: number[]
+  /** Đơn vị của `volume`, ảnh hưởng cách format số trong bullet + prompt */
+  volumeUnit?: "number" | "currency"
+
+  /** Chuỗi số liệu dạng tỉ lệ % (CTR, ER, delivery %...) — optional */
+  rate?: number[]
+  /** Tên hiển thị cho `rate`. VD: "CTR", "Engagement rate" */
+  rateLabel?: string
+
+  /** Nếu true, coi labels là chuỗi thời gian (tháng/ngày) để tính xu hướng tăng/giảm */
+  isTimeSeries?: boolean
 }
 
-function pctChange(first: number, last: number): number {
-  if (!first) return 0
-  return ((last - first) / first) * 100
+// ---------- Local formatters (không import từ dashboard-data để tránh vòng lặp import) ----------
+const numFmt = (n: number) =>
+  Number.isFinite(n) ? new Intl.NumberFormat("vi-VN").format(Math.round(n)) : "—"
+
+const vndFmt = (n: number) => {
+  if (!Number.isFinite(n)) return "—"
+  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(2).replace(/\.?0+$/, "") + " tỷ"
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + " tr"
+  return new Intl.NumberFormat("vi-VN").format(Math.round(n)) + " ₫"
 }
 
-function argmax(arr: number[]): number {
-  let idx = 0
-  for (let i = 1; i < arr.length; i++) if (arr[i] > arr[idx]) idx = i
-  return idx
+const pctFmt = (n: number) => (Number.isFinite(n) ? `${n.toFixed(2)}%` : "—")
+
+function formatVolume(n: number, unit: InsightSpec["volumeUnit"]) {
+  return unit === "currency" ? vndFmt(n) : numFmt(n)
 }
 
-function argmin(arr: number[]): number {
-  let idx = 0
-  for (let i = 1; i < arr.length; i++) if (arr[i] < arr[idx]) idx = i
-  return idx
-}
-
-function sum(arr: number[]): number {
-  return arr.reduce((s, n) => s + n, 0)
-}
-
-// Deterministic, offline rule-based insights derived directly from chart data.
+// ---------- Rule-based bullets (chạy tức thì, không gọi API) ----------
 export function buildInsights(spec: InsightSpec): string[] {
-  const out: string[] = []
-  const { labels, volume, volumeLabel = "Volume", ctr, frequency, spend } = spec
-  if (!labels.length) return ["Chưa có dữ liệu để phân tích."]
+  const bullets: string[] = []
+  const { labels, volume, volumeLabel, volumeUnit, rate, rateLabel, isTimeSeries } = spec
 
-  // Volume: trend + concentration.
-  if (volume && volume.length) {
-    const total = sum(volume)
-    const top = argmax(volume)
-    const share = total ? (volume[top] / total) * 100 : 0
-    out.push(
-      `${volumeLabel} cao nhất ở "${labels[top]}" với ${num(volume[top])} (${share.toFixed(0)}% tổng ${num(total)}).`,
-    )
-    if (volume.length >= 2) {
-      const chg = pctChange(volume[0], volume[volume.length - 1])
-      const dir = chg >= 0 ? "tăng" : "giảm"
-      out.push(
-        `${volumeLabel} ${dir} ${Math.abs(chg).toFixed(1)}% từ "${labels[0]}" (${num(volume[0])}) đến "${labels[labels.length - 1]}" (${num(volume[volume.length - 1])}).`,
+  if (!labels?.length) return bullets
+
+  // 1) Top item theo volume
+  if (volume?.length === labels.length) {
+    const total = volume.reduce((s, v) => s + (v || 0), 0)
+    if (total > 0) {
+      const maxIdx = volume.reduce((best, v, i) => (v > volume[best] ? i : best), 0)
+      const minIdx = volume.reduce((best, v, i) => (v < volume[best] ? i : best), 0)
+      const share = (volume[maxIdx] / total) * 100
+
+      bullets.push(
+        `${labels[maxIdx]} dẫn đầu với ${formatVolume(volume[maxIdx], volumeUnit)} ${
+          volumeLabel ?? ""
+        } (${pctFmt(share)} tổng số).`,
       )
+
+      // Chỉ nêu điểm thấp nhất nếu có ≥ 3 nhóm và không trùng với top
+      if (labels.length >= 3 && minIdx !== maxIdx) {
+        bullets.push(
+          `${labels[minIdx]} thấp nhất với ${formatVolume(volume[minIdx], volumeUnit)} ${
+            volumeLabel ?? ""
+          }.`,
+        )
+      }
+
+      // Nếu top chiếm quá bán tổng, cảnh báo mất cân đối
+      if (share >= 50 && labels.length > 2) {
+        bullets.push(`Phân bổ đang tập trung mạnh vào ${labels[maxIdx]} — cân nhắc đa dạng hoá nếu đây không phải chủ đích.`)
+      }
     }
   }
 
-  // CTR: best/worst efficiency.
-  if (ctr && ctr.length) {
-    const best = argmax(ctr)
-    const worst = argmin(ctr)
-    if (best !== worst) {
-      out.push(
-        `CTR tốt nhất tại "${labels[best]}" (${pct(ctr[best])}), thấp nhất tại "${labels[worst]}" (${pct(ctr[worst])}).`,
-      )
-    } else {
-      out.push(`CTR trung bình quanh ${pct(ctr[best])}.`)
+  // 2) Rate cao/thấp nhất (CTR, ER...)
+  if (rate?.length === labels.length) {
+    const validIdx = rate.map((_, i) => i).filter((i) => Number.isFinite(rate[i]))
+    if (validIdx.length > 0) {
+      const maxIdx = validIdx.reduce((best, i) => (rate[i] > rate[best] ? i : best), validIdx[0])
+      const minIdx = validIdx.reduce((best, i) => (rate[i] < rate[best] ? i : best), validIdx[0])
+
+      bullets.push(`${rateLabel ?? "Tỷ lệ"} cao nhất ở ${labels[maxIdx]}: ${pctFmt(rate[maxIdx])}.`)
+
+      if (minIdx !== maxIdx) {
+        bullets.push(`${rateLabel ?? "Tỷ lệ"} thấp nhất ở ${labels[minIdx]}: ${pctFmt(rate[minIdx])} — có thể cần tối ưu.`)
+      }
     }
   }
 
-  // Frequency: fatigue warning.
-  if (frequency && frequency.length) {
-    const hi = argmax(frequency)
-    if (frequency[hi] >= 3) {
-      out.push(
-        `⚠ Frequency tại "${labels[hi]}" đạt ${freqFmt(frequency[hi])} — có dấu hiệu bội thực quảng cáo, cân nhắc mở rộng tệp.`,
-      )
-    } else {
-      out.push(`Frequency cao nhất ${freqFmt(frequency[hi])} tại "${labels[hi]}", vẫn trong ngưỡng an toàn.`)
+  // 3) Xu hướng theo thời gian (nếu là time series và có volume)
+  if (isTimeSeries && volume && volume.length >= 2) {
+    const first = volume[0]
+    const last = volume[volume.length - 1]
+    if (first > 0) {
+      const change = ((last - first) / first) * 100
+      const direction = change > 0 ? "tăng" : change < 0 ? "giảm" : "không đổi"
+      if (Math.abs(change) >= 1) {
+        bullets.push(
+          `${volumeLabel ?? "Chỉ số"} ${direction} ${pctFmt(Math.abs(change))} từ ${labels[0]} đến ${labels[labels.length - 1]}.`,
+        )
+      }
     }
   }
 
-  // Spend efficiency: cost per the volume unit when both present.
-  if (spend && spend.length && volume && volume.length) {
-    const totalSpend = sum(spend)
-    const totalVol = sum(volume)
-    if (totalVol) {
-      const cpm = (totalSpend / totalVol) * 1000
-      out.push(`Chi phí trung bình ${vnd(Math.round(cpm))}/1.000 ${volumeLabel.toLowerCase()} (CPM).`)
-    }
-  }
-
-  return out.slice(0, 4)
+  return bullets.slice(0, 4) // giới hạn số bullet hiển thị
 }
 
-// Compact serialization sent to the LLM for deeper analysis.
+// ---------- Format spec thành text block để đưa vào prompt LLM ----------
 export function specToPrompt(spec: InsightSpec): string {
+  const { labels, volume, volumeLabel, volumeUnit, rate, rateLabel } = spec
   const lines: string[] = []
-  spec.labels.forEach((label, i) => {
-    const parts: string[] = [label]
-    if (spec.volume) parts.push(`${spec.volumeLabel ?? "volume"}=${spec.volume[i]}`)
-    if (spec.ctr) parts.push(`ctr=${spec.ctr[i]}%`)
-    if (spec.frequency) parts.push(`frequency=${spec.frequency[i]}`)
-    if (spec.spend) parts.push(`spend=${spec.spend[i]}`)
-    lines.push(parts.join(", "))
+
+  labels.forEach((label, i) => {
+    const parts: string[] = [`- ${label}:`]
+    if (volume?.[i] !== undefined) {
+      parts.push(`${volumeLabel ?? "Giá trị"} = ${formatVolume(volume[i], volumeUnit)}`)
+    }
+    if (rate?.[i] !== undefined) {
+      parts.push(`${rateLabel ?? "Tỷ lệ"} = ${pctFmt(rate[i])}`)
+    }
+    lines.push(parts.join(" "))
   })
+
   return lines.join("\n")
 }

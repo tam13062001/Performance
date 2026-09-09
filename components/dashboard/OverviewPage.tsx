@@ -10,11 +10,19 @@ import {
 } from "@/lib/dashboard-data";
 import { KpiCards } from "../kpi-card";
 import { ChannelDoughnut, RateLineChart, VolumeBarChart, VolumeEfficiencyChart, type ChannelSlice } from "../charts";
+import { ChartInsights } from "../chart-insights";
+import type { InsightSpec } from "@/lib/insights";
 import { usePlanData, useDailyMetrics, usePagination } from "./hooks";
 import { VerdictChip, PaginationControls } from "./shared-ui";
 
 /* ---------------- Volume & Efficiency theo Phase ---------------- */
-function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessBreakdown> }) {
+function PhaseEfficiencyCard({
+  bizRows,
+  insightSpec,
+}: {
+  bizRows: ReturnType<typeof businessBreakdown>;
+  insightSpec: InsightSpec;
+}) {
   if (bizRows.length === 0) return null;
 
   return (
@@ -34,6 +42,7 @@ function PhaseEfficiencyCard({ bizRows }: { bizRows: ReturnType<typeof businessB
           frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))}
         />
       </div>
+      <ChartInsights spec={insightSpec} />
     </article>
   );
 }
@@ -58,9 +67,11 @@ function PerformanceFunnel({ impressions, engagements, clicks }: PerformanceFunn
     { label: "CTR", value: rateOf(clicks, impressions), tone: "impressions" },
     { label: "Click-to-engagement", value: rateOf(clicks, engagements), tone: "clicks" },
   ];
+  // Bracket đầu (Impressions -> Engagement) = ER, không phải CTR.
+  // Bracket sau (Engagement -> Clicks) = tỷ lệ click trên engagement.
   const conversionAnnotations = [
-    { label: "CTR", value: rateOf(clicks, impressions), tone: "impressions" },
-    { label: "Tỷ lệ chuyển đổi", value: rateOf(clicks, engagements), tone: "clicks" },
+    { label: "ER", value: rateOf(engagements, impressions), tone: "engagement" },
+    { label: "Engagement → Click", value: rateOf(clicks, engagements), tone: "clicks" },
   ];
 
   return (
@@ -139,19 +150,100 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
 
   const { currentPage, setCurrentPage, totalPages, currentData: pagedCampaignRows } = usePagination(campaignRows, 10);
 
+  const channelSlices = useMemo<ChannelSlice[]>(
+    () =>
+      Object.entries(
+        data.reduce<Record<string, number>>((acc, r) => {
+          const key = (r.channel || "Chưa map").trim().toUpperCase();
+          acc[key] = (acc[key] || 0) + (r.impressions || 0);
+          return acc;
+        }, {})
+      )
+        .filter(([, imp]) => imp > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, value]) => ({ label, value })),
+    [data],
+  );
+
+  const channelInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: "Impressions theo nền tảng",
+      subject: "theo nền tảng",
+      labels: channelSlices.map((slice) => slice.label),
+      volume: channelSlices.map((slice) => slice.value),
+      volumeLabel: "Impressions",
+    }),
+    [channelSlices],
+  );
+
+  // Impressions theo Phase — bar chart (volume) kèm CTR để AI thấy cả khối
+  // lượng lẫn hiệu quả từng phase, không chỉ mỗi con số thô.
+  const phaseVolumeInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: "Impressions theo Phase",
+      subject: "theo Phase",
+      labels: bizRows.map((b) => b.label),
+      volume: bizRows.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+      rate: bizRows.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+      isTimeSeries: true, // phase đi theo thứ tự chiến dịch, cần thấy xu hướng tăng/giảm
+    }),
+    [bizRows],
+  );
+
+  // CTR & Frequency theo Phase — line chart hiệu quả, rate là CTR, volume mượn
+  // slot để chở Frequency (đơn vị "lần", không phải %).
+  const phaseEfficiencyInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: "CTR & Frequency theo Phase",
+      subject: "theo Phase",
+      labels: bizRows.map((b) => b.label),
+      rate: bizRows.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+      volume: bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2))),
+      volumeLabel: "Frequency",
+      isTimeSeries: true,
+    }),
+    [bizRows],
+  );
+
+  // Combo Volume & Efficiency — cùng data với card trên nhưng tách riêng vì
+  // đây là chart khác, tránh AI lẫn lộn 2 lần hỏi ra cùng 1 câu trả lời.
+  const phaseComboInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: "Impressions, CTR & Frequency theo Phase",
+      subject: "theo Phase",
+      labels: bizRows.map((b) => b.label),
+      volume: bizRows.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+      rate: bizRows.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+      isTimeSeries: true,
+    }),
+    [bizRows],
+  );
+
+  // Performance funnel — 3 tầng Impressions → Engagement → Clicks. isTimeSeries
+  // dùng ở đây để AI nêu % rơi rụng từ tầng đầu đến tầng cuối của funnel.
+  const funnelInsightSpec = useMemo<InsightSpec>(() => {
+    const { impressions, engagements, clicks } = performanceTotals;
+    const rateOf = (value: number, base: number) => (base > 0 ? (value / base) * 100 : 0);
+    return {
+      title: "Hiệu quả chuyển đổi",
+      subject: "theo tầng funnel",
+      labels: ["Impressions", "Engagement", "Clicks"],
+      volume: [impressions, engagements, clicks],
+      volumeLabel: "Số lượng",
+      rate: [100, rateOf(engagements, impressions), rateOf(clicks, impressions)],
+      rateLabel: "% so với Impressions",
+      isTimeSeries: true,
+    };
+  }, [performanceTotals]);
+
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
 
-  const channelSlices: ChannelSlice[] = Object.entries(
-    data.reduce<Record<string, number>>((acc, r) => {
-      const key = (r.channel || "Chưa map").trim().toUpperCase();
-      acc[key] = (acc[key] || 0) + (r.impressions || 0);
-      return acc;
-    }, {})
-  )
-    .filter(([, imp]) => imp > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({ label, value }));
   return (
     <>
       <div className="hero">
@@ -177,6 +269,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <VolumeBarChart labels={bizRows.map((b) => b.label)} impressions={bizRows.map((b) => b.impressions)} reach={bizRows.map((b) => b.reach)} />
           </div>
+          <ChartInsights spec={phaseVolumeInsightSpec} />
         </article>
 
         <article className="card">
@@ -187,10 +280,11 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap">
             <RateLineChart labels={bizRows.map((b) => b.label)} ctr={bizRows.map((b) => Number(b.ctr.toFixed(2)))} frequency={bizRows.map((b) => Number(freqOf(b.impressions, b.reach).toFixed(2)))} />
           </div>
+          <ChartInsights spec={phaseEfficiencyInsightSpec} />
         </article>
       </div>
 
-      <PhaseEfficiencyCard bizRows={bizRows} />
+      <PhaseEfficiencyCard bizRows={bizRows} insightSpec={phaseComboInsightSpec} />
 
       {/* Daily trend (ad_daily_metrics) — giữ comment y nguyên như bản gốc,
           đã có trang riêng DailyTrendPage nên card này tắt ở Overview. */}
@@ -226,12 +320,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
           <div className="chart-wrap large" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <ChannelDoughnut slices={channelSlices} />
           </div>
-          <div style={{ padding: '16px', borderTop: '1px solid var(--border)' }}>
-             <button style={{ display: 'flex', gap: '6px', alignItems: 'center', background: 'transparent', border: '1px solid var(--border)', color: 'var(--fg)', padding: '6px 12px', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}>
-               <Sparkles size={14} style={{ color: 'var(--accent)' }} />
-               AI insights
-             </button>
-          </div>
+          <ChartInsights spec={channelInsightSpec} />
         </article>
 
         <article className="card">
@@ -246,6 +335,7 @@ export function OverviewPage({ projectCode, periodMonth, planView }: { projectCo
             engagements={performanceTotals.engagements}
             clicks={performanceTotals.clicks}
           />
+          <ChartInsights spec={funnelInsightSpec} />
         </article>
       </div>
 

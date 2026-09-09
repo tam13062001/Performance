@@ -1,40 +1,97 @@
+// app/api/insights/route.ts
 import { generateText } from "ai"
+import { google } from "@ai-sdk/google" // npm i @ai-sdk/google
+import { z } from "zod"
 import { type InsightSpec, specToPrompt } from "@/lib/insights"
 
-export const dynamic = 'force-static';
+export const dynamic = "force-dynamic"
+export const maxDuration = 60
 
-export const maxDuration = 30
+// ---- Validate input thay vì ép kiểu thẳng ----
+const insightSpecSchema = z.object({
+  title: z.string().min(1),
+  subject: z.string().min(1),
+  labels: z.array(z.string()).min(1),
+  volume: z.array(z.number()).optional(),
+  volumeLabel: z.string().optional(),
+  volumeUnit: z.enum(["number", "currency"]).optional(),
+  rate: z.array(z.number()).optional(),
+  rateLabel: z.string().optional(),
+  isTimeSeries: z.boolean().optional(),
+})
+
+// ---- Cache in-memory đơn giản theo hash của spec (giảm gọi API trùng lặp) ----
+// Lưu ý: chỉ hiệu quả trong 1 lambda instance, không phải cache phân tán.
+// Nếu cần cache thật (nhiều instance/serverless), chuyển sang Vercel KV / Upstash Redis.
+const cache = new Map<string, { text: string; expiresAt: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 phút — đủ để tránh spam re-render nhưng vẫn "tươi"
+
+function hashSpec(spec: InsightSpec) {
+  return JSON.stringify(spec)
+}
 
 export async function POST(req: Request) {
+  let spec: InsightSpec
+
   try {
-    const spec = (await req.json()) as InsightSpec
-    if (!spec?.labels?.length) {
-      return Response.json({ error: "Thiếu dữ liệu chart." }, { status: 400 })
+    const body = await req.json()
+    const parsed = insightSpecSchema.safeParse(body)
+    if (!parsed.success) {
+      return Response.json(
+        { error: "Dữ liệu chart không hợp lệ.", details: parsed.error.flatten() },
+        { status: 400 },
+      )
     }
+    spec = parsed.data
+  } catch {
+    return Response.json({ error: "Body không phải JSON hợp lệ." }, { status: 400 })
+  }
 
-    const dataBlock = specToPrompt(spec)
+  const key = hashSpec(spec)
+  const cached = cache.get(key)
+  if (cached && cached.expiresAt > Date.now()) {
+    return Response.json({ text: cached.text, cached: true })
+  }
 
+  const dataBlock = specToPrompt(spec)
+
+  try {
     const { text } = await generateText({
-      // Fast, low-cost model; Google is zero-config on the Vercel AI Gateway.
-      model: "google/gemini-2.5-flash",
+      // Gọi thẳng provider Google thay vì string qua AI Gateway
+      // -> tránh phụ thuộc billing của Vercel AI Gateway.
+      // Cần env: GOOGLE_GENERATIVE_AI_API_KEY
+      model: google("gemini-3.6-flash"),
       system:
         "Bạn là chuyên gia phân tích hiệu suất quảng cáo digital (Google Ads & Meta Ads). " +
         "Phân tích số liệu được cung cấp và trả lời hoàn toàn bằng tiếng Việt. " +
         "Đưa ra 2-3 câu ngắn gọn: nhận định xu hướng nổi bật và MỘT khuyến nghị hành động cụ thể. " +
         "Không lặp lại số liệu thô một cách máy móc, tập trung vào ý nghĩa kinh doanh. Không dùng markdown.",
       prompt: `Biểu đồ: "${spec.title}" (${spec.subject}).\n\nDữ liệu:\n${dataBlock}\n\nHãy phân tích.`,
+      // abortSignal: AbortSignal.timeout(20_000),
+       // fail sớm hơn maxDuration của route
     })
 
-    return Response.json({ text: text.trim() })
+    const trimmed = text.trim()
+    cache.set(key, { text: trimmed, expiresAt: Date.now() + CACHE_TTL_MS })
+
+    return Response.json({ text: trimmed })
   } catch (err) {
-    console.error("[v0] insights route error:", err)
+    console.error("[insights] route error:", err)
     const raw = err instanceof Error ? err.message : String(err)
-    // The AI Gateway blocks requests until a payment method is on file; pass a
-    // clear, actionable message through instead of a generic failure.
+
+    const isTimeout = err instanceof Error && err.name === "TimeoutError"
     const needsCard = /credit card|customer_verification|valid credit/i.test(raw)
-    const message = needsCard
-      ? "Tính năng AI cần bật thanh toán cho Vercel AI Gateway (thêm thẻ để mở khoá free credits). Các insight tự động bên trên vẫn hoạt động bình thường."
-      : "Không tạo được phân tích AI. Vui lòng thử lại."
-    return Response.json({ error: message }, { status: needsCard ? 402 : 500 })
+    const isRateLimit = /rate limit|429/i.test(raw)
+
+    const message = isTimeout
+      ? "AI phân tích mất quá lâu, vui lòng thử lại."
+      : needsCard
+        ? "Tính năng AI cần cấu hình API key (GOOGLE_GENERATIVE_AI_API_KEY) hoặc bật thanh toán Gateway. Insight tự động vẫn hoạt động bình thường."
+        : isRateLimit
+          ? "Đang quá tải request AI, vui lòng thử lại sau ít phút."
+          : "Không tạo được phân tích AI. Vui lòng thử lại."
+
+    const status = needsCard ? 402 : isRateLimit ? 429 : 500
+    return Response.json({ error: message }, { status })
   }
 }
