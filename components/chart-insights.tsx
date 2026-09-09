@@ -1,13 +1,24 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { createContext, useContext, useMemo, useState } from "react"
 import { Sparkles, ChevronDown, Lightbulb, Loader2 } from "lucide-react"
 import { buildInsights, type InsightSpec } from "@/lib/insights"
+
+// Bật/tắt AI insights toàn cục cho một cây component — dùng để ẩn hẳn khối
+// "AI insights" (kể cả rule-based bullets) trên report chia sẻ cho khách
+// (ShareView), nơi không muốn lộ nội bộ/analysis chi tiết ra ngoài.
+// Mặc định = true (hiện bình thường) cho toàn bộ dashboard nội bộ.
+const AiInsightsContext = createContext(true)
+
+export function AiInsightsProvider({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
+  return <AiInsightsContext.Provider value={enabled}>{children}</AiInsightsContext.Provider>
+}
 
 // Collapsible AI-insights panel attached under a chart. Rule-based bullets are
 // computed instantly from the chart data; the "Hỏi AI" button calls the LLM
 // route for a deeper natural-language read.
 export function ChartInsights({ spec }: { spec: InsightSpec }) {
+  const enabled = useContext(AiInsightsContext)
   const [open, setOpen] = useState(false)
   const [aiText, setAiText] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -33,6 +44,8 @@ export function ChartInsights({ spec }: { spec: InsightSpec }) {
       setLoading(false)
     }
   }
+
+  if (!enabled) return null
 
   return (
     <div className={`chart-ai ${open ? "open" : ""}`}>

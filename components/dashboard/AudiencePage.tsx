@@ -12,6 +12,8 @@ import {
   type DemographicRow,
 } from "@/lib/dashboard-data";
 import { ChannelDoughnut, VolumeBarChart, RateLineChart } from "../charts";
+import { ChartInsights } from "../chart-insights";
+import type { InsightSpec } from "@/lib/insights";
 import { usePagination } from "./hooks";
 import { DemoPlatformChip, PaginationControls } from "./shared-ui";
 import { demoTabs } from "./constants";
@@ -118,6 +120,38 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
 
   const label = demoTabs.find((t) => t.id === dim)?.label;
 
+  // Impressions & CTR theo dim hiện tại (age/gender/region) — volume + rate
+  // đi cùng nhau để AI thấy cả khối lượng lẫn hiệu quả của từng nhóm.
+  const volumeInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `Impressions & CTR theo ${label ?? "nhóm"}`,
+      subject: `theo ${label ?? "nhóm"}`,
+      labels: breakdown.map((b) => b.label),
+      volume: breakdown.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+      rate: breakdown.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+    }),
+    [breakdown, label],
+  );
+
+  // Google vs Meta contribution — chỉ 2 lát cắt, tổng hợp từ breakdown hiện tại.
+  const channelInsightSpec = useMemo<InsightSpec>(() => {
+    const googleTotal = breakdown.reduce((s, b) => s + b.googleImpressions, 0);
+    const metaTotal = breakdown.reduce((s, b) => s + b.metaImpressions, 0);
+    const slices = [
+      { label: "Google Ads", value: googleTotal },
+      { label: "Meta Ads", value: metaTotal },
+    ].filter((s) => s.value > 0);
+    return {
+      title: `Google vs Meta theo ${label ?? "nhóm"}`,
+      subject: `theo ${label ?? "nhóm"}`,
+      labels: slices.map((s) => s.label),
+      volume: slices.map((s) => s.value),
+      volumeLabel: "Impressions",
+    };
+  }, [breakdown, label]);
+
   // Người dùng tự chọn 1 ngày trên date picker mà ngày đó không có data →
   // tự fallback về ngày gần nhất có data thay vì để trắng trang.
   function handleDateChange(next: string) {
@@ -223,6 +257,7 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
                 metaCtr={breakdown.map((b) => Number(b.metaCtr.toFixed(2)))}
             />
             </div>
+            <ChartInsights spec={volumeInsightSpec} />
         </article>
         </div>
 
@@ -239,6 +274,7 @@ export function AudiencePage({ projectCode, periodMonth }: { projectCode: string
               ].filter((s) => s.value > 0)}
             />
           </div>
+          <ChartInsights spec={channelInsightSpec} />
         </article>
 
         <article className="card">

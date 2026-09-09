@@ -16,6 +16,8 @@ import {
 } from "@/lib/dashboard-data";
 import { KpiCards } from "../kpi-card";
 import { VolumeBarChart, RateLineChart } from "../charts";
+import { ChartInsights } from "../chart-insights";
+import type { InsightSpec } from "@/lib/insights";
 import { useChannelRawData, usePagination } from "./hooks";
 import { currentMonthAbbrClient } from "./utils";
 import { NotAvailableNotice, PaginationControls } from "./shared-ui";
@@ -35,7 +37,7 @@ function nearestAvailableDate(target: string, dates: string[]): string | null {
   }
   return candidate ?? dates[0];
 }
-
+type ExecutionRow = Awaited<ReturnType<typeof loadExecutionRows>>[number];
 /* ---------------- Channel dashboards ---------------- */
 function ExecutionSection({
   projectCode,
@@ -48,9 +50,7 @@ function ExecutionSection({
   level: "campaign" | "adgroup";
   periodMonth: string;
 }) {
-  const [rows, setRows] = useState<
-    Awaited<ReturnType<typeof loadExecutionRows>>
-  >([]);
+  const [rows, setRows] = useState<ExecutionRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const {
@@ -99,6 +99,30 @@ function ExecutionSection({
     };
   }, [projectCode, platform, level, periodMonth]);
 
+  const isGoogle = platform === "Google";
+  const showReach = !isGoogle && rows.some((r) => r.reach !== null);
+  const secondarySeries = isGoogle
+    ? rows.map((r) => r.clicks)
+    : showReach
+      ? rows.map((r) => r.reach ?? 0)
+      : undefined;
+  const secondaryLabel = isGoogle ? " & Clicks" : showReach ? " & Reach" : "";
+
+  // Impressions + CTR theo campaign/ad group đang hiển thị trên chart bên
+  // dưới — cùng data thật, không tính lại theo cách khác.
+  const executionInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `Impressions${secondaryLabel} & CTR · ${platform}`,
+      subject: `theo ${level === "campaign" ? "campaign" : "ad group"} · ${platform}`,
+      labels: rows.map((r) => r.name),
+      volume: rows.map((r) => r.impressions),
+      volumeLabel: "Impressions",
+      rate: rows.map((r) => Number(r.ctr.toFixed(2))),
+      rateLabel: "CTR",
+    }),
+    [rows, platform, level, secondaryLabel],
+  );
+
   if (loading)
     return (
       <div className="notice">
@@ -108,15 +132,6 @@ function ExecutionSection({
         </div>
       </div>
     );
-
-  const isGoogle = platform === "Google";
-  const showReach = !isGoogle && rows.some((r) => r.reach !== null);
-  const secondarySeries = isGoogle
-    ? rows.map((r) => r.clicks)
-    : showReach
-      ? rows.map((r) => r.reach ?? 0)
-      : undefined;
-  const secondaryLabel = isGoogle ? " & Clicks" : showReach ? " & Reach" : "";
 
   const TRUNCATE_LENGTH = 4;
   const truncateLabel = (name: string) => {
@@ -144,6 +159,7 @@ function ExecutionSection({
               ctr={rows.map((r) => Number(r.ctr.toFixed(2)))}
             />
           </div>
+          <ChartInsights spec={executionInsightSpec} />
         </article>
       </div>
 
@@ -424,6 +440,48 @@ function PlatformAudienceSection({
   } = usePagination(campaignBreakdown, 10);
 
   const label = demoTabs.find((t) => t.id === dim)?.label;
+  const isGooglePlatform = platform?.toLowerCase() === "google";
+  const secondaryLabel = isGooglePlatform ? "Clicks" : "Reach";
+
+  // Combo chart (Impressions + secondary + CTR) — spec chính, mang đủ cả
+  // volume lẫn CTR để AI đọc được tổng quan hiệu quả theo {label}.
+  const comboInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `Impressions & CTR theo ${label ?? "nhóm"} · ${platform}`,
+      subject: `theo ${label ?? "nhóm"} · ${platform}`,
+      labels: breakdown.map((b) => b.label),
+      volume: breakdown.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+      rate: breakdown.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+    }),
+    [breakdown, label, platform],
+  );
+
+  // Volume-only chart (Impressions + Clicks/Reach) — không có CTR, chỉ nêu
+  // khối lượng để tránh AI lặp lại đúng câu với combo chart ở trên.
+  const volumeOnlyInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `Impressions theo ${label ?? "nhóm"} · ${platform}`,
+      subject: `theo ${label ?? "nhóm"} · ${platform}`,
+      labels: breakdown.map((b) => b.label),
+      volume: breakdown.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+    }),
+    [breakdown, label, platform],
+  );
+
+  // Rate-only chart (CTR line) — chỉ CTR, không kèm volume.
+  const rateOnlyInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `CTR theo ${label ?? "nhóm"} · ${platform}`,
+      subject: `theo ${label ?? "nhóm"} · ${platform}`,
+      labels: breakdown.map((b) => b.label),
+      rate: breakdown.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+    }),
+    [breakdown, label, platform],
+  );
 
   // Người dùng tự chọn 1 ngày trên date picker mà ngày đó không có data →
   // tự fallback về ngày gần nhất có data thay vì để trắng trang.
@@ -551,14 +609,15 @@ function PlatformAudienceSection({
       labels={breakdown.map((b) => b.label)}
       impressions={breakdown.map((b) => b.impressions)}
       secondary={
-        platform?.toLowerCase() === "google"
+        isGooglePlatform
           ? breakdown.map((b) => b.clicks)
           : breakdown.map((b) => b.reach)
       }
-      secondaryLabel={platform?.toLowerCase() === "google" ? "Clicks" : "Reach"}
+      secondaryLabel={secondaryLabel}
       ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
     />
   </div>
+  <ChartInsights spec={comboInsightSpec} />
 </article>
       <div className="grid-2 two-thirds">
         <article className="card">
@@ -575,15 +634,14 @@ function PlatformAudienceSection({
               labels={breakdown.map((b) => b.label)}
               impressions={breakdown.map((b) => b.impressions)}
               reach={
-                platform?.toLowerCase() === "google"
+                isGooglePlatform
                   ? breakdown.map((b) => b.clicks)
                   : breakdown.map((b) => b.reach)
               }
-              secondaryLabel={
-                platform?.toLowerCase() === "google" ? "Clicks" : "Reach"
-              }
+              secondaryLabel={secondaryLabel}
             />
           </div>
+          <ChartInsights spec={volumeOnlyInsightSpec} />
         </article>
         <article className="card">
           <div className="card-head">
@@ -600,6 +658,7 @@ function PlatformAudienceSection({
               ctr={breakdown.map((b) => Number(b.ctr.toFixed(2)))}
             />
           </div>
+          <ChartInsights spec={rateOnlyInsightSpec} />
         </article>
       </div>
       
@@ -638,7 +697,7 @@ function PlatformAudienceSection({
                     <th className="right">Impressions</th>
                     <th className="right">Clicks</th>
                     {/* Kiểm tra điều kiện ở Header */}
-                    {platform?.toLowerCase() !== "google" && (
+                    {!isGooglePlatform && (
                       <th className="right">Reach</th>
                     )}
                     <th className="right">CTR</th>
@@ -652,7 +711,7 @@ function PlatformAudienceSection({
                       <td className="right">{num(b.impressions)}</td>
                       <td className="right">{num(b.clicks)}</td>
                       {/* Kiểm tra điều kiện ở Body */}
-                      {platform?.toLowerCase() !== "google" && (
+                      {!isGooglePlatform && (
                         <td className="right">{num(b.reach)}</td>
                       )}
                       <td className="right">{pct(b.ctr)}</td>
@@ -663,7 +722,7 @@ function PlatformAudienceSection({
                     <tr>
                       {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
                       <td
-                        colSpan={platform?.toLowerCase() === "google" ? 5 : 6}
+                        colSpan={isGooglePlatform ? 5 : 6}
                       >
                         Chưa có data audience cho {platform} ở kỳ này.
                       </td>
@@ -686,7 +745,7 @@ function PlatformAudienceSection({
                     <th>{label}</th>
                     <th className="right">Impressions</th>
                     {/* Kiểm tra điều kiện ở Header */}
-                    {platform?.toLowerCase() !== "google" && (
+                    {!isGooglePlatform && (
                       <th className="right">Clicks</th>
                     )}
                     <th className="right">CTR</th>
@@ -700,7 +759,7 @@ function PlatformAudienceSection({
                       <td>{r.breakdownValue}</td>
                       <td className="right">{num(r.impressions)}</td>
                       {/* Kiểm tra điều kiện ở Body */}
-                      {platform?.toLowerCase() !== "google" && (
+                      {!isGooglePlatform && (
                         <td className="right">{num(r.clicks)}</td>
                       )}
                       <td className="right">{pct(r.ctr)}</td>
@@ -711,7 +770,7 @@ function PlatformAudienceSection({
                     <tr>
                       {/* Thay đổi colSpan linh hoạt dựa trên số cột thực tế */}
                       <td
-                        colSpan={platform?.toLowerCase() === "google" ? 5 : 6}
+                        colSpan={isGooglePlatform ? 5 : 6}
                       >
                         Chưa có data campaign cho {platform} ở kỳ này.
                       </td>
@@ -817,6 +876,21 @@ function KeywordsSection({
     totalPages,
     currentData: pagedRows,
   } = usePagination(breakdown, 10);
+
+  // Top 15 keyword đúng như dữ liệu vẽ trên chart bên dưới.
+  const topKeywords = useMemo(() => breakdown.slice(0, 15), [breakdown]);
+  const keywordInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: "Top keyword theo Clicks",
+      subject: "top 15 search term",
+      labels: topKeywords.map((b) => b.label),
+      volume: topKeywords.map((b) => b.impressions),
+      volumeLabel: "Impressions",
+      rate: topKeywords.map((b) => Number(b.ctr.toFixed(2))),
+      rateLabel: "CTR",
+    }),
+    [topKeywords],
+  );
 
   function handleDateChange(next: string) {
     if (availableDates.includes(next)) {
@@ -925,11 +999,12 @@ function KeywordsSection({
         </div>
         <div className="chart-wrap large">
           <VolumeBarChart
-            labels={breakdown.slice(0, 15).map((b) => b.label)}
-            impressions={breakdown.slice(0, 15).map((b) => b.impressions)}
-            ctr={breakdown.slice(0, 15).map((b) => Number(b.ctr.toFixed(2)))}
+            labels={topKeywords.map((b) => b.label)}
+            impressions={topKeywords.map((b) => b.impressions)}
+            ctr={topKeywords.map((b) => Number(b.ctr.toFixed(2)))}
           />
         </div>
+        <ChartInsights spec={keywordInsightSpec} />
       </article>
 
       <article className="card">

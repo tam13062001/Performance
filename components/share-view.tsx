@@ -14,6 +14,7 @@ import {
 import {useAvailableMonths} from "./dashboard/hooks";
 import { SHAREABLE_PAGES, type SharePageId } from "@/lib/share-pages";
 import { applyProjectTheme, ClientThemeContext, DEFAULT_THEME } from "@/lib/theme";
+import { AiInsightsProvider } from "./chart-insights";
 
 type ShareMeta = {
   authed: boolean;
@@ -289,13 +290,15 @@ export function ShareView({ slug }: { slug: string }) {
         </div>
 
         <section className="page">
-          {activePage === "overview" && periodMonth && <OverviewPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
-          {activePage === "business" && periodMonth && <BusinessPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
-          {activePage === "audience" && periodMonth && <AudiencePage projectCode={projectCode} periodMonth={periodMonth} />}
-          {activePage === "google" && <ChannelDashboard projectCode={projectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
-          {activePage === "meta" && <ChannelDashboard projectCode={projectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
-          {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
-          {activePage === "daily" && <DailyTrendPage projectCode={projectCode} />}
+          <AiInsightsProvider enabled={false}>
+            {activePage === "overview" && periodMonth && <OverviewPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
+            {activePage === "business" && periodMonth && <BusinessPage projectCode={projectCode} periodMonth={periodMonth} planView={planView} />}
+            {activePage === "audience" && periodMonth && <AudiencePage projectCode={projectCode} periodMonth={periodMonth} />}
+            {activePage === "google" && <ChannelDashboard projectCode={projectCode} platform="Google" periodMonth={periodMonth} planView={planView} />}
+            {activePage === "meta" && <ChannelDashboard projectCode={projectCode} platform="Meta" periodMonth={periodMonth} planView={planView} />}
+            {activePage === "taxonomy" && periodMonth && <PlanPage projectCode={projectCode} periodMonth={periodMonth} />}
+            {activePage === "daily" && <DailyTrendPage projectCode={projectCode} />}
+          </AiInsightsProvider>
         </section>
       </main>
     </ClientThemeContext.Provider>

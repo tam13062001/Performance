@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
 import { num, pct, vnd, ctrOf, dailyTrend, filterDailyByRange } from "@/lib/dashboard-data";
 import { VolumeEfficiencyChart } from "../charts";
+import { ChartInsights } from "../chart-insights";
+import type { InsightSpec } from "@/lib/insights";
 import { useDailyMetrics, usePagination } from "./hooks";
 import { classifyChannel, aggregateByCampaign, formatDateVN } from "./utils";
 import { DateRangeTabs, DateRangePicker, PlatformChip, PaginationControls } from "./shared-ui";
@@ -73,6 +75,22 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
   );
   const { currentPage, setCurrentPage, totalPages, currentData: pagedRows } = usePagination(sortedRows, 20);
 
+  // Xu hướng theo ngày (impressions/CTR/frequency) trong khoảng chartRangeDays
+  // đang chọn — đúng data thật đang vẽ trên chart, không phải toàn bộ lịch sử.
+  const dailyInsightSpec = useMemo<InsightSpec>(
+    () => ({
+      title: `Impressions, CTR & Frequency ${chartRangeDays} ngày gần nhất`,
+      subject: `${chartRangeDays} ngày gần nhất`,
+      labels: points.map((p) => p.date),
+      volume: points.map((p) => p.impressions),
+      volumeLabel: "Impressions",
+      rate: points.map((p) => Number(p.ctr.toFixed(2))),
+      rateLabel: "CTR",
+      isTimeSeries: true,
+    }),
+    [points, chartRangeDays],
+  );
+
   if (loading) return <div className="notice"><Info size={18} /><div><b>Đang tải dữ liệu…</b></div></div>;
   if (error) return <div className="notice"><Info size={18} /><div><b>Lỗi tải dữ liệu</b><p>{error}</p></div></div>;
 
@@ -103,14 +121,17 @@ export function DailyTrendPage({ projectCode }: { projectCode: string }) {
         {points.length === 0 ? (
           <div className="notice"><Info size={18} /><div><b>Chưa có dữ liệu cho khoảng ngày này.</b></div></div>
         ) : (
-          <div className="chart-wrap large">
-            <VolumeEfficiencyChart
-              labels={points.map((p) => p.date)}
-              impressions={points.map((p) => p.impressions)}
-              ctr={points.map((p) => Number(p.ctr.toFixed(2)))}
-              frequency={points.map((p) => Number(p.frequency.toFixed(2)))}
-            />
-          </div>
+          <>
+            <div className="chart-wrap large">
+              <VolumeEfficiencyChart
+                labels={points.map((p) => p.date)}
+                impressions={points.map((p) => p.impressions)}
+                ctr={points.map((p) => Number(p.ctr.toFixed(2)))}
+                frequency={points.map((p) => Number(p.frequency.toFixed(2)))}
+              />
+            </div>
+            <ChartInsights spec={dailyInsightSpec} />
+          </>
         )}
       </article>
 
